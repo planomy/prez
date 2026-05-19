@@ -2478,13 +2478,38 @@ body {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  z-index: 200;
+  z-index: 3200;
   width: 220px;
   padding: 14px;
   border-radius: 12px;
   background: #1a2028;
   border: 1px solid var(--border);
   box-shadow: var(--shadow-lg);
+  pointer-events: auto;
+  isolation: isolate;
+}
+
+/* Block PDF/embed toolbars from stealing hover while menus are open */
+body.toolbar-overlay-open::before {
+  content: '';
+  position: fixed;
+  top: var(--toolbar-h);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2900;
+  pointer-events: auto;
+}
+
+body.toolbar-overlay-open .canvas-wrap,
+body.toolbar-overlay-open .fab,
+body.toolbar-overlay-open .hint {
+  pointer-events: none;
+}
+
+body.timer-popover-open .doc-iframe {
+  pointer-events: none;
+  visibility: hidden;
 }
 
 .timer-popover-label {

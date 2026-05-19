@@ -691,10 +691,25 @@ function toggleFormatMenu(open) {
   const show = typeof open === 'boolean' ? open : formatMenu.hidden;
   formatMenu.hidden = !show;
   btnFormat.setAttribute('aria-expanded', show ? 'true' : 'false');
+  syncToolbarOverlayLock();
 }
 
 function closeFormatMenu() {
   toggleFormatMenu(false);
+}
+
+function isAnyToolbarOverlayOpen() {
+  return (
+    !$('#formatMenu')?.hidden ||
+    !$('#toolsMenu')?.hidden ||
+    !$('#fileMenu')?.hidden ||
+    !$('#timerPopover')?.hidden
+  );
+}
+
+function syncToolbarOverlayLock() {
+  document.body.classList.toggle('toolbar-overlay-open', isAnyToolbarOverlayOpen());
+  document.body.classList.toggle('timer-popover-open', !$('#timerPopover')?.hidden);
 }
 
 function closeToolbarMenus() {
@@ -716,6 +731,7 @@ function closeToolbarMenus() {
   }
   $('#btnTools')?.setAttribute('aria-expanded', 'false');
   $('#btnFile')?.setAttribute('aria-expanded', 'false');
+  syncToolbarOverlayLock();
 }
 
 function toggleToolsMenu() {
@@ -729,6 +745,7 @@ function toggleToolsMenu() {
     menu.removeAttribute('hidden');
     btn.setAttribute('aria-expanded', 'true');
   }
+  syncToolbarOverlayLock();
 }
 
 function toggleFileMenu() {
@@ -742,6 +759,7 @@ function toggleFileMenu() {
     menu.removeAttribute('hidden');
     btn.setAttribute('aria-expanded', 'true');
   }
+  syncToolbarOverlayLock();
 }
 
 function initToolbarMenus() {
@@ -772,12 +790,30 @@ function initToolbarMenus() {
     const item = e.target.closest('[data-file]');
     if (!item) return;
     e.stopPropagation();
-    closeToolbarMenus();
     const action = item.dataset.file;
+    if (action === 'save') return;
+    closeToolbarMenus();
     if (action === 'new') newBoard();
-    else if (action === 'save') saveBoardAs();
     else if (action === 'open') openFilePicker();
   });
+
+  initSaveAsButton();
+}
+
+function initSaveAsButton() {
+  const btn = document.querySelector('#fileMenu [data-file="save"]');
+  if (!btn || btn.dataset.saveBound) return;
+  btn.dataset.saveBound = '1';
+  btn.addEventListener(
+    'click',
+    (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      beginSaveBoardAs();
+      closeToolbarMenus();
+    },
+    true
+  );
 }
 
 function initFormatMenu() {
@@ -2581,6 +2617,7 @@ function toggleTimerPopover() {
   if (open) pop.removeAttribute('hidden');
   else pop.setAttribute('hidden', '');
   if (open) updateTimerDisplays();
+  syncToolbarOverlayLock();
 }
 
 function initTimerUI() {
@@ -2992,13 +3029,6 @@ function newBoard() {
   showToast('New board');
 }
 
-const PREZ_SAVE_TYPES = [
-  {
-    description: 'Prez board (JSON)',
-    accept: { 'application/json': ['.json'] },
-  },
-];
-
 function buildBoardExportJson() {
   const data = {
     version: VERSION,
@@ -3007,6 +3037,10 @@ function buildBoardExportJson() {
     background: state.background,
     layoutMode: state.layoutMode || null,
     blocks: state.blocks,
+    presentOrder: state.presentOrder,
+    blankContent: state.blankContent,
+    blankDraw: state.blankDraw,
+    timerSeconds: state.timerSeconds,
   };
   return JSON.stringify(data, null, 2);
 }
@@ -3018,7 +3052,7 @@ function getBoardTitle() {
 
 function suggestedExportFilename() {
   const base = sanitizeFilename(getBoardTitle());
-  return base.endsWith('.prez') ? base + '.json' : base + '.prez.json';
+  return `${base}.prez.json`;
 }
 
 function downloadBoardFile(json, filename) {
@@ -3037,45 +3071,70 @@ function canUseSaveFilePicker() {
   return window.isSecureContext && typeof window.showSaveFilePicker === 'function';
 }
 
-function downloadBoardFallback() {
-  const filename = suggestedExportFilename();
+async function writeBoardToFileHandle(handle) {
+  const writable = await handle.createWritable();
+  await writable.write(buildBoardExportJson());
+  await writable.close();
+}
+
+function saveBoardToDownloads(filename, toastMsg) {
   downloadBoardFile(buildBoardExportJson(), filename);
-  showToast(
-    canUseSaveFilePicker()
-      ? 'Saved to Downloads'
-      : 'Saved to Downloads — open via http://localhost for Save As dialog'
+  showToast(toastMsg);
+}
+
+function onSavePickerError(err, filename) {
+  if (err?.name === 'AbortError') return;
+  console.warn('Save As failed:', err);
+  if (err?.name === 'SecurityError') {
+    showToast('Save dialog blocked — click Save as… again');
+    return;
+  }
+  saveBoardToDownloads(
+    filename,
+    `Saved to Downloads (${err?.name || 'dialog unavailable'})`
   );
 }
 
-/** Call directly from a click handler so user activation reaches the file picker. */
-function saveBoardAs() {
+/** Must run synchronously inside the Save as… click handler. */
+function beginSaveBoardAs() {
   const suggestedName = suggestedExportFilename();
 
-  if (!canUseSaveFilePicker()) {
-    downloadBoardFallback();
+  if (!window.isSecureContext) {
+    saveBoardToDownloads(
+      suggestedName,
+      'Saved to Downloads — use http://localhost or https:// for Save As'
+    );
     return;
   }
 
-  window
-    .showSaveFilePicker({
+  if (typeof window.showSaveFilePicker !== 'function') {
+    saveBoardToDownloads(
       suggestedName,
-      types: PREZ_SAVE_TYPES,
-    })
-    .then(async (handle) => {
-      const writable = await handle.createWritable();
-      await writable.write(buildBoardExportJson());
-      await writable.close();
-      showToast('Board saved');
-    })
-    .catch((err) => {
-      if (err?.name === 'AbortError') return;
-      console.warn('Save dialog failed, using download fallback', err);
-      downloadBoardFallback();
-    });
+      'Saved to Downloads — use Chrome or Edge for Save As'
+    );
+    return;
+  }
+
+  let pickerPromise;
+  try {
+    pickerPromise = window.showSaveFilePicker({ suggestedName });
+  } catch (err) {
+    onSavePickerError(err, suggestedName);
+    return;
+  }
+
+  pickerPromise
+    .then((handle) => writeBoardToFileHandle(handle))
+    .then(() => showToast('Board saved'))
+    .catch((err) => onSavePickerError(err, suggestedName));
+}
+
+function saveBoardAs() {
+  beginSaveBoardAs();
 }
 
 function exportBoard() {
-  saveBoardAs();
+  beginSaveBoardAs();
 }
 
 function importBoard(file) {
