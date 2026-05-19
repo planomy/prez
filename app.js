@@ -793,7 +793,8 @@ function initToolbarMenus() {
     const action = item.dataset.file;
     if (action === 'save') return;
     closeToolbarMenus();
-    if (action === 'new') newBoard();
+    if (action === 'templates') openTemplatesDialog();
+    else if (action === 'new') newBoard();
     else if (action === 'open') openFilePicker();
   });
 
@@ -1440,6 +1441,12 @@ function isValidHttpUrl(url) {
   }
 }
 
+/** Static GitHub Pages (e.g. planomy.github.io/prez) allow iframe embeds. */
+function isGithubPagesHost(hostname) {
+  const h = (hostname || '').toLowerCase();
+  return h === 'github.io' || h.endsWith('.github.io');
+}
+
 function getLinkEmbedUrl(raw) {
   const url = normalizeLinkUrl(raw);
   if (!isValidHttpUrl(url)) return null;
@@ -1481,7 +1488,11 @@ function getLinkEmbedUrl(raw) {
       }
     }
 
-    // Most sites (ChatGPT, Google, etc.) block iframes — only embed known platforms above.
+    if (isGithubPagesHost(u.hostname)) {
+      return url;
+    }
+
+    // Most sites (ChatGPT, Google search, etc.) block iframes — only embed known platforms above.
     return null;
   } catch {
     return null;
@@ -1504,7 +1515,7 @@ function getLinkCardHTML(openUrl, { present = false } = {}) {
     <span class="link-card-icon" aria-hidden="true">🔗</span>
     <div class="link-card-meta">
       <p class="link-card-host">${escapeHtml(host)}</p>
-      <p class="link-card-note">Can’t embed this site — open in a new tab</p>
+      <p class="link-card-note">This site can’t be embedded — open in a new tab</p>
     </div>
     <a class="${openClass} link-card-open-btn" href="${escapeAttr(openUrl)}" target="_blank" rel="noopener noreferrer">Open ↗</a>
   </div>`;
@@ -3023,6 +3034,177 @@ function initAlignUI() {
   });
 }
 
+// --- Templates ---
+
+function instantiateTemplateBlock(spec, index) {
+  const type = spec.type;
+  let w = spec.w;
+  let h = spec.h;
+  if (!w) {
+    w = type === 'heading' ? 400 : type === 'timer' ? 300 : 340;
+  }
+  if (!h) {
+    h =
+      type === 'heading'
+        ? 160
+        : type === 'list'
+          ? 240
+          : type === 'image'
+            ? 280
+            : type === 'timer'
+              ? 200
+              : 200;
+  }
+  const block = {
+    id: uid(),
+    type,
+    x: LAYOUT_PAD,
+    y: LAYOUT_PAD + index * 48,
+    w,
+    h,
+    z: index + 1,
+    accent: spec.accent || ACCENTS[index % ACCENT_DARK.length],
+    title: spec.title || '',
+    content: spec.content ?? '',
+  };
+  if (type === 'timer') block.timerSec = spec.timerSec ?? 300;
+  if (spec.tableHtml) block.tableHtml = spec.tableHtml;
+  if (spec.url) block.url = spec.url;
+  return block;
+}
+
+function applyBoardTemplate(templateId) {
+  const templates = window.PREZ_TEMPLATES;
+  if (!Array.isArray(templates)) {
+    showToast('Templates not loaded');
+    return;
+  }
+  const tpl = templates.find((t) => t.id === templateId);
+  if (!tpl) return;
+
+  if (
+    state.blocks.length &&
+    !confirm('Replace your current board with this template? Unsaved changes will be lost.')
+  ) {
+    return;
+  }
+
+  closePresent();
+  closeFormatMenu();
+  closeAllDropdowns();
+  closeBlank();
+  closeOutline();
+  resetTimer();
+
+  const blocks = (tpl.blockSpecs || []).map((spec, i) => instantiateTemplateBlock(spec, i));
+  const presentOrder = blocks.map((b) => b.id);
+  const board = tpl.board || {};
+
+  state = normalizeBoardState({
+    title: board.title || tpl.name || DEFAULTS.title,
+    background: board.background || DEFAULTS.background,
+    layoutMode: board.layoutMode || 'rows',
+    blocks,
+    presentOrder,
+    blankContent: '',
+    blankDraw: null,
+    timerSeconds: 300,
+  });
+
+  selectedId = null;
+  layoutUndoStack = [];
+  updateUndoButton();
+  setLayoutSelectValue(state.layoutMode || 'free');
+  syncBoardTitle();
+  applyBackground();
+
+  if (state.layoutMode && state.layoutMode !== 'free') {
+    arrangeBlocks(state.layoutMode);
+    resizeCanvasToContent();
+  } else {
+    resizeCanvasToContent();
+  }
+
+  render();
+  persist();
+  $('#templatesDialog')?.close();
+  showToast(`${tpl.name} ready — edit cards and Present`);
+}
+
+function createTemplateCard(tpl, { large = false } = {}) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'template-card' + (large ? ' template-card--featured' : '');
+  btn.dataset.templateId = tpl.id;
+  const tagHtml = tpl.tag ? `<span class="template-card-tag">${escapeHtml(tpl.tag)}</span>` : '';
+  btn.innerHTML = `${tagHtml}<span class="template-card-name">${escapeHtml(tpl.name)}</span><span class="template-card-desc">${escapeHtml(tpl.description || '')}</span><span class="template-card-cta">Use template</span>`;
+  btn.addEventListener('click', () => applyBoardTemplate(tpl.id));
+  return btn;
+}
+
+function buildTemplatesGallery() {
+  const templates = window.PREZ_TEMPLATES;
+  if (!Array.isArray(templates)) return;
+
+  const featuredEl = $('#templatesFeatured');
+  const sectionsEl = $('#templatesSections');
+  if (!featuredEl || !sectionsEl) return;
+
+  featuredEl.innerHTML = '';
+  sectionsEl.innerHTML = '';
+
+  const featured = templates.filter((t) => t.tag === 'Featured');
+  const rest = templates.filter((t) => t.tag !== 'Featured');
+
+  if (featured.length) {
+    featuredEl.hidden = false;
+    featuredEl.removeAttribute('hidden');
+    featured.forEach((tpl) => featuredEl.appendChild(createTemplateCard(tpl, { large: true })));
+  } else {
+    featuredEl.hidden = true;
+    featuredEl.setAttribute('hidden', '');
+  }
+
+  const byCategory = {};
+  rest.forEach((tpl) => {
+    const cat = tpl.category || 'More';
+    if (!byCategory[cat]) byCategory[cat] = [];
+    byCategory[cat].push(tpl);
+  });
+
+  Object.keys(byCategory).forEach((cat) => {
+    const section = document.createElement('section');
+    section.className = 'templates-section';
+    const h3 = document.createElement('h3');
+    h3.className = 'templates-section-title';
+    h3.textContent = cat;
+    const grid = document.createElement('div');
+    grid.className = 'templates-grid';
+    byCategory[cat].forEach((tpl) => grid.appendChild(createTemplateCard(tpl)));
+    section.appendChild(h3);
+    section.appendChild(grid);
+    sectionsEl.appendChild(section);
+  });
+}
+
+function initTemplatesGallery() {
+  buildTemplatesGallery();
+}
+
+function openTemplatesDialog() {
+  const dialog = $('#templatesDialog');
+  if (!dialog) {
+    showToast('Templates dialog missing');
+    return;
+  }
+  buildTemplatesGallery();
+  try {
+    dialog.showModal();
+  } catch {
+    showToast('Could not open templates');
+  }
+}
+
 // --- Save / load ---
 
 function newBoard() {
@@ -3351,6 +3533,7 @@ function init() {
     initOutlineUI();
     initAlignUI();
     initFormatMenu();
+    initTemplatesGallery();
     setLayoutSelectValue(state.layoutMode || 'free');
     render();
     scheduleDocxBackfill();

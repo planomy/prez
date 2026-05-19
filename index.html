@@ -100,6 +100,8 @@
             <span class="btn-format-caret" aria-hidden="true">▾</span>
           </button>
           <div id="fileMenu" class="toolbar-dropdown" role="menu" hidden>
+            <button type="button" class="toolbar-dropdown-item" data-file="templates">Templates…</button>
+            <div class="toolbar-dropdown-divider"></div>
             <button type="button" class="toolbar-dropdown-item" data-file="new">New board</button>
             <button type="button" class="toolbar-dropdown-item" data-file="save">Save as…</button>
             <button type="button" class="toolbar-dropdown-item" data-file="open">Open…</button>
@@ -127,7 +129,7 @@
       <span>Post</span>
     </button>
 
-    <p class="hint" id="hint">Tools menu · File · Present (P) · Post · Shift+drag = no snap</p>
+    <p class="hint" id="hint">File → Templates · Present (P) · Post · Shift+drag = no snap</p>
   </div>
 
   <dialog id="bgDialog" class="dialog">
@@ -194,6 +196,18 @@
     </form>
   </dialog>
 
+  <dialog id="templatesDialog" class="dialog">
+    <div class="dialog-panel dialog-panel-templates">
+      <header class="dialog-header">
+        <h2>Templates</h2>
+        <button type="button" class="btn-icon dialog-close" data-close aria-label="Close">×</button>
+      </header>
+      <p class="templates-intro">Start from a ready-made board. Replace placeholder text, add links or images, then Present in lesson order.</p>
+      <div id="templatesFeatured" class="templates-featured" hidden></div>
+      <div id="templatesSections" class="templates-sections"></div>
+    </div>
+  </dialog>
+
   <aside id="outlinePanel" class="outline-panel" hidden aria-label="Lesson outline">
     <header class="outline-header">
       <h2>Lesson outline</h2>
@@ -235,6 +249,7 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
+  <script src="templates.js"></script>
   <script src="app.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mammoth@1.9.0/mammoth.browser.min.js" async></script>
 </body>
