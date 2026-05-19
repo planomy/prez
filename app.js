@@ -142,6 +142,7 @@ const DEFAULTS = {
   blankDraw: null,
   timerSeconds: 300,
   mindMapCenterId: null,
+  defaultAccent: null,
 };
 
 const MIND_MAP_BRANCH = { w: 280, h: 180, accent: 'gold' };
@@ -278,8 +279,25 @@ function normalizeBoardState(data) {
   if (merged.mindMapCenterId && !ids.has(merged.mindMapCenterId)) {
     merged.mindMapCenterId = null;
   }
+  if (merged.defaultAccent && !ACCENTS.includes(merged.defaultAccent)) {
+    merged.defaultAccent = null;
+  }
   timerState.remainingSec = merged.timerSeconds;
   return merged;
+}
+
+function getDefaultBlockAccent() {
+  if (state.defaultAccent && ACCENTS.includes(state.defaultAccent)) {
+    return state.defaultAccent;
+  }
+  return ACCENTS[state.blocks.length % ACCENTS.length];
+}
+
+/** Remember the first swatch the teacher picks on this board for new cards. */
+function rememberBoardAccent(accent) {
+  if (!accent || !ACCENTS.includes(accent) || state.defaultAccent) return;
+  state.defaultAccent = accent;
+  persist();
 }
 
 function loadState() {
@@ -1623,6 +1641,33 @@ function isGithubPagesHost(hostname) {
   return h === 'github.io' || h.endsWith('.github.io');
 }
 
+/** YouTube IDs are 11 chars; strip trailing junk from pasted URLs/markdown. */
+function sanitizeYoutubeVideoId(raw) {
+  if (!raw) return '';
+  const chunk = String(raw).trim().split(/[?&#\s\[\]('"<>]/)[0];
+  const match = chunk.match(/^[\w-]{11}/);
+  return match ? match[0] : '';
+}
+
+function youtubeEmbedUrl(videoId) {
+  const id = sanitizeYoutubeVideoId(videoId);
+  if (!id) return null;
+  return `https://www.youtube-nocookie.com/embed/${id}`;
+}
+
+function isMediaEmbedUrl(embedUrl) {
+  try {
+    const h = new URL(embedUrl).hostname;
+    return (
+      h.includes('youtube.com') ||
+      h === 'youtube-nocookie.com' ||
+      h === 'player.vimeo.com'
+    );
+  } catch {
+    return false;
+  }
+}
+
 function getLinkEmbedUrl(raw) {
   const url = normalizeLinkUrl(raw);
   if (!isValidHttpUrl(url)) return null;
@@ -1632,18 +1677,23 @@ function getLinkEmbedUrl(raw) {
 
     if (u.hostname === 'youtu.be') {
       const id = u.pathname.replace(/^\//, '').split('/')[0];
-      if (id) return `https://www.youtube.com/embed/${id}`;
+      const embed = youtubeEmbedUrl(id);
+      if (embed) return embed;
     }
 
     if (u.hostname.includes('youtube.com') || u.hostname === 'youtube-nocookie.com') {
       if (u.pathname === '/watch') {
-        const v = u.searchParams.get('v');
-        if (v) return `https://www.youtube.com/embed/${v}`;
+        const embed = youtubeEmbedUrl(u.searchParams.get('v'));
+        if (embed) return embed;
       }
-      if (u.pathname.startsWith('/embed/')) return url;
-      if (u.pathname.startsWith('/shorts/')) {
+      if (u.pathname.startsWith('/embed/')) {
         const id = u.pathname.split('/')[2];
-        if (id) return `https://www.youtube.com/embed/${id}`;
+        const embed = youtubeEmbedUrl(id);
+        if (embed) return embed;
+      }
+      if (u.pathname.startsWith('/shorts/')) {
+        const embed = youtubeEmbedUrl(u.pathname.split('/')[2]);
+        if (embed) return embed;
       }
     }
 
@@ -1703,12 +1753,19 @@ function getLinkOpenUrl(raw) {
 }
 
 function getLinkEmbedHTML(embedUrl, openUrl, { present = false } = {}) {
+  const media = isMediaEmbedUrl(embedUrl);
   const sandbox = present
     ? 'allow-scripts allow-same-origin allow-popups allow-forms allow-presentation'
     : 'allow-scripts allow-same-origin allow-popups allow-forms';
-  const allow = present ? ' allowfullscreen' : '';
+  const allowAttr = media
+    ? ' allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"' +
+      (present ? ' allowfullscreen' : '')
+    : present
+      ? ' allowfullscreen'
+      : '';
+  const referrerPolicy = media ? 'strict-origin-when-cross-origin' : 'no-referrer';
   return `<div class="${present ? 'present-link-embed' : 'block-link-embed'}">
-      <iframe src="${escapeAttr(embedUrl)}" title="Web page preview" class="link-iframe" sandbox="${sandbox}"${allow} referrerpolicy="no-referrer"></iframe>
+      <iframe src="${escapeAttr(embedUrl)}" title="Web page preview" class="link-iframe" sandbox="${sandbox}"${allowAttr} referrerpolicy="${referrerPolicy}"></iframe>
       <a class="${present ? 'present-link-open' : 'block-link-open'}" href="${escapeAttr(openUrl)}" target="_blank" rel="noopener noreferrer">Open in new tab ↗</a>
     </div>`;
 }
@@ -2013,6 +2070,7 @@ function bindBlockEvents(el, block) {
 
     if (btn.dataset.color) {
       block.accent = btn.dataset.color;
+      rememberBoardAccent(btn.dataset.color);
       closeAllDropdowns();
       render();
       return;
@@ -2962,7 +3020,7 @@ function addBlock(type) {
                     ? 130
                     : 200,
     z: Math.max(0, ...state.blocks.map((b) => b.z || 0)) + 1,
-    accent: ACCENTS[state.blocks.length % ACCENTS.length],
+    accent: getDefaultBlockAccent(),
     title: '',
     content: '',
   };
@@ -4217,6 +4275,7 @@ function newBoard() {
     blankDraw: null,
     timerSeconds: 300,
     mindMapCenterId: null,
+    defaultAccent: null,
   });
 
   selectedId = null;
@@ -4243,6 +4302,7 @@ function buildBoardExportJson() {
     blankDraw: state.blankDraw,
     timerSeconds: state.timerSeconds,
     mindMapCenterId: state.mindMapCenterId || null,
+    defaultAccent: state.defaultAccent || null,
   };
   return JSON.stringify(data, null, 2);
 }
@@ -4354,6 +4414,7 @@ function importBoard(file) {
         blankDraw: data.blankDraw,
         timerSeconds: data.timerSeconds,
         mindMapCenterId: data.mindMapCenterId || null,
+        defaultAccent: data.defaultAccent || null,
       });
       setTimerDuration(state.timerSeconds || 300);
       selectedId = null;
