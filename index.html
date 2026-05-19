@@ -160,6 +160,10 @@
           <span class="type-icon note">Aa</span>
           <span class="type-label">Note</span>
         </button>
+        <button type="button" class="type-card" data-type="sticky">
+          <span class="type-icon sticky">▪</span>
+          <span class="type-label">Quick sticky</span>
+        </button>
         <button type="button" class="type-card" data-type="heading">
           <span class="type-icon heading">H</span>
           <span class="type-label">Heading</span>
@@ -188,6 +192,14 @@
           <span class="type-icon timer">⏱</span>
           <span class="type-label">Timer</span>
         </button>
+        <button type="button" class="type-card" data-type="poll">
+          <span class="type-icon poll">◉</span>
+          <span class="type-label">Poll</span>
+        </button>
+        <button type="button" class="type-card" data-type="quiz">
+          <span class="type-icon quiz">?</span>
+          <span class="type-label">Quiz</span>
+        </button>
         <button type="button" class="type-card" data-type="whiteboard">
           <span class="type-icon whiteboard">▢</span>
           <span class="type-label">Whiteboard</span>
@@ -213,7 +225,7 @@
       <h2>Lesson outline</h2>
       <button type="button" id="outlineClose" class="btn-icon" aria-label="Close outline">×</button>
     </header>
-    <p class="outline-hint">Drag to set present order · Click to select · Double-click to present</p>
+    <p class="outline-hint">Drag to reorder · × to delete · Double-click to present</p>
     <ol id="outlineList" class="outline-list"></ol>
   </aside>
 

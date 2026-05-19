@@ -20,6 +20,7 @@ const ACCENTS = [...ACCENT_DARK, ...ACCENT_PASTEL];
 
 const BLOCK_TYPE_OPTIONS = [
   { type: 'note', icon: 'Aa', label: 'Note', iconClass: 'note' },
+  { type: 'sticky', icon: '▪', label: 'Quick sticky', iconClass: 'sticky' },
   { type: 'heading', icon: 'H', label: 'Heading', iconClass: 'heading' },
   { type: 'image', icon: '▣', label: 'Image', iconClass: 'image' },
   { type: 'document', icon: '📄', label: 'Document', iconClass: 'document' },
@@ -27,6 +28,8 @@ const BLOCK_TYPE_OPTIONS = [
   { type: 'list', icon: '≡', label: 'List', iconClass: 'list' },
   { type: 'table', icon: '⊞', label: 'Table', iconClass: 'table' },
   { type: 'timer', icon: '⏱', label: 'Timer', iconClass: 'timer' },
+  { type: 'poll', icon: '◉', label: 'Poll', iconClass: 'poll' },
+  { type: 'quiz', icon: '?', label: 'Quiz', iconClass: 'quiz' },
   { type: 'whiteboard', icon: '▢', label: 'Whiteboard', iconClass: 'whiteboard' },
 ];
 
@@ -138,7 +141,11 @@ const DEFAULTS = {
   blankContent: '',
   blankDraw: null,
   timerSeconds: 300,
+  mindMapCenterId: null,
 };
+
+const MIND_MAP_BRANCH = { w: 280, h: 180, accent: 'gold' };
+const MIND_MAP_HUB = { w: 480, h: 220, accent: 'ocean' };
 
 let timerState = { running: false, endAt: null, remainingSec: 300 };
 let timerFloatDismissed = false;
@@ -148,6 +155,12 @@ let dragState = null;
 let resizeState = null;
 let presentIndex = 0;
 let presentExpanded = false;
+let presentRevealBlockId = null;
+let presentListRevealCount = 1;
+let presentQuizRevealBlockId = null;
+let presentQuizQuestionIndex = 0;
+let presentQuizQuestionAnswered = false;
+let presentQuizPickedIndex = null;
 let timerTickInterval = null;
 let blankDrawCtx = null;
 let blankDrawing = false;
@@ -156,6 +169,39 @@ let outlineDragId = null;
 
 const PRESENT_EXPAND_ICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l16-16M20 4h-6M20 4v6"/></svg>`;
 const PRESENT_RESTORE_ICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 15L4 20M4 20h5M4 20v-5M15 9l5-5M20 4h-5M20 4v5"/></svg>`;
+
+const FOOTER_SVG_ATTRS =
+  'width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
+const FOOTER_ICON_PRESENT = `<svg ${FOOTER_SVG_ATTRS}><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>`;
+const FOOTER_ICON_IMAGE = `<svg ${FOOTER_SVG_ATTRS}><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.5" r="1.5"/><path d="M21 17l-5.5-5.5a2 2 0 0 0-2.8 0L3 19"/></svg>`;
+const FOOTER_ICON_REPLACE = `<svg ${FOOTER_SVG_ATTRS}><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>`;
+const FOOTER_ICON_REMOVE = `<svg ${FOOTER_SVG_ATTRS}><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`;
+
+function getPresentFooterButtonHTML() {
+  return `<button type="button" class="btn-present-block block-footer-btn-icon" data-action="present" title="Present (P)" aria-label="Present">${FOOTER_ICON_PRESENT}</button>`;
+}
+
+function getImageAddFooterHTML() {
+  return `<label class="block-footer-btn block-footer-btn-icon" title="Add image" aria-label="Add image"><input type="file" accept="image/*" data-field="image" hidden />${FOOTER_ICON_IMAGE}</label>`;
+}
+
+function getImageReplaceFooterHTML() {
+  return `<label class="block-footer-btn block-footer-btn-icon block-footer-btn-replace" title="Replace image" aria-label="Replace image"><input type="file" accept="image/*" data-field="image" hidden />${FOOTER_ICON_REPLACE}</label>`;
+}
+
+function getImageRemoveFooterHTML() {
+  return `<button type="button" class="block-footer-btn block-footer-btn-icon" data-action="remove-image" title="Remove image" aria-label="Remove image">${FOOTER_ICON_REMOVE}</button>`;
+}
+
+function getListRevealFooterHTML(block) {
+  const on = listUsesRevealInPresent(block);
+  return `<div class="block-footer-reveal" title="${on ? 'Reveal bullets one at a time in Present' : 'Show all bullets at once in Present'}">
+    <span class="block-footer-reveal-label">Bullet reveal</span>
+    <button type="button" class="block-footer-toggle${on ? ' is-on' : ''}" role="switch" aria-checked="${on ? 'true' : 'false'}" aria-label="Bullet reveal in Present" data-action="toggle-list-reveal">
+      <span class="block-footer-toggle-track" aria-hidden="true"><span class="block-footer-toggle-thumb"></span></span>
+    </button>
+  </div>`;
+}
 let saveTimer = null;
 
 // DOM
@@ -221,11 +267,17 @@ function normalizeBoardState(data) {
   let order = Array.isArray(merged.presentOrder) ? merged.presentOrder.filter((id) => ids.has(id)) : [];
   merged.blocks.forEach((b) => {
     if (!order.includes(b.id)) order.push(b.id);
+    normalizePollData(b);
+    normalizeQuizData(b);
   });
   merged.presentOrder = order;
   merged.blankContent = merged.blankContent || '';
   merged.blankDraw = merged.blankDraw || null;
   merged.timerSeconds = merged.timerSeconds || 300;
+  merged.mindMapCenterId = merged.mindMapCenterId || null;
+  if (merged.mindMapCenterId && !ids.has(merged.mindMapCenterId)) {
+    merged.mindMapCenterId = null;
+  }
   timerState.remainingSec = merged.timerSeconds;
   return merged;
 }
@@ -393,9 +445,14 @@ function positionBlock(el, block) {
 function createBlockElement(block) {
   const el = document.createElement('article');
   el.className = 'block';
+  if (state.mindMapCenterId && block.id === state.mindMapCenterId) {
+    el.classList.add('block--mind-map-hub');
+  }
+  if (block.type === 'sticky') el.classList.add('block--sticky');
   el.dataset.blockId = block.id;
   el.dataset.blockType = block.type;
   el.setAttribute('role', 'article');
+  el.tabIndex = -1;
 
   el.innerHTML = `
     <header class="block-header">
@@ -432,7 +489,7 @@ function createBlockElement(block) {
     </header>
     <div class="block-body"></div>
     <footer class="block-footer">
-      <button type="button" class="btn-present-block" data-action="present" title="Present fullscreen">▶ Present</button>
+      ${getPresentFooterButtonHTML()}
     </footer>
     <span class="resize-handle resize-se" data-resize="se"></span>
     <span class="resize-handle resize-e" data-resize="e"></span>
@@ -1106,12 +1163,115 @@ function canPreserveBlockBody(el, block) {
     return !!(img && img.getAttribute('src') === block.imageData);
   }
 
+  if ((block.type === 'note' || block.type === 'list') && block.imageData) {
+    const img = $('.block-inline-image-wrap img', el);
+    return !!(img && img.getAttribute('src') === block.imageData);
+  }
+
   return false;
+}
+
+function blockAcceptsInlineImage(block) {
+  return block.type === 'note' || block.type === 'list';
+}
+
+function getInlineImageHTML(block) {
+  if (!block.imageData) return '';
+  const alt = escapeHtml(block.title || 'Image');
+  return `<div class="block-inline-image-wrap"><img src="${block.imageData}" alt="${alt}" /></div>`;
+}
+
+function getTextCardBodyHTML(block, { titlePlaceholder, contentPlaceholder, fallbackContent }) {
+  const title = escapeHtml(block.title || '');
+  return `<input class="block-title-input" type="text" value="${title}" placeholder="${titlePlaceholder}" data-field="title" />
+    ${getInlineImageHTML(block)}
+    <div class="block-content" contenteditable="true" data-field="content" data-placeholder="${contentPlaceholder}">${block.content || fallbackContent}</div>`;
+}
+
+function getNoteListImageFooterHTML(block) {
+  if (!blockAcceptsInlineImage(block)) return '';
+  if (block.imageData) {
+    return getImageReplaceFooterHTML() + getImageRemoveFooterHTML();
+  }
+  return getImageAddFooterHTML();
+}
+
+function getPresentInlineImageHTML(block) {
+  if (!block.imageData || !blockAcceptsInlineImage(block)) return '';
+  return `<div class="present-inline-image"><img src="${block.imageData}" alt="" /></div>`;
+}
+
+function wrapPresentTextCardHTML(block, bodyHTML, { showTitle = true } = {}) {
+  const title =
+    showTitle && block.title
+      ? `<h1 class="present-card-title">${escapeHtml(block.title)}</h1>`
+      : '';
+  const image = getPresentInlineImageHTML(block);
+  const body = `<div class="present-body present-body--text">${bodyHTML}</div>`;
+  if (!image) return title + body;
+  return `<div class="present-card-stack">${title}${image}${body}</div>`;
+}
+
+function presentCardHasInlineImage(block) {
+  return !!(block.imageData && blockAcceptsInlineImage(block));
+}
+
+function listUsesRevealInPresent(block) {
+  return block?.type === 'list' && !block.listRevealAll;
+}
+
+function countListItemsInContent(html) {
+  const wrap = document.createElement('div');
+  wrap.innerHTML = html || '';
+  const items = [...wrap.querySelectorAll('li')];
+  if (!items.length) return 0;
+  const withText = items.filter((li) => li.textContent.trim()).length;
+  return withText || items.length;
+}
+
+function buildPresentListBodyHTML(block) {
+  const html = block.content || '<ul><li></li></ul>';
+  if (!listUsesRevealInPresent(block)) return html;
+
+  const wrap = document.createElement('div');
+  wrap.innerHTML = html;
+  const items = wrap.querySelectorAll('li');
+  if (!items.length) return html;
+
+  const total = items.length;
+  const show = Math.max(1, Math.min(presentListRevealCount, total));
+  let i = 0;
+  items.forEach((li) => {
+    i += 1;
+    if (i > show) {
+      li.classList.add('present-reveal-hidden');
+      li.setAttribute('aria-hidden', 'true');
+    } else {
+      li.classList.remove('present-reveal-hidden');
+      li.removeAttribute('aria-hidden');
+    }
+  });
+  return wrap.innerHTML;
+}
+
+function ensurePresentRevealState(block) {
+  if (!block || block.id !== presentRevealBlockId) {
+    presentRevealBlockId = block?.id || null;
+    presentListRevealCount = block && listUsesRevealInPresent(block) ? 1 : 0;
+  }
+}
+
+function getPresentListRevealHintHTML(block) {
+  if (!listUsesRevealInPresent(block)) return '';
+  const total = countListItemsInContent(block.content);
+  if (total <= 1 || presentListRevealCount >= total) return '';
+  return '<p class="present-reveal-hint">Click or press Space for next bullet</p>';
 }
 
 function updateBlockElement(el, block) {
   applyAccentStyles(el, block.accent);
   el.dataset.blockType = block.type;
+  el.classList.toggle('block--sticky', block.type === 'sticky');
 
   const active = document.activeElement;
   if (
@@ -1155,9 +1315,10 @@ function syncBlockFooter(el, block) {
 
   const left = [];
   if (block.type === 'image' && block.imageData) {
-    left.push(
-      '<label class="block-footer-btn block-footer-btn-replace"><input type="file" accept="image/*" data-field="image" hidden />Replace image</label>'
-    );
+    left.push(getImageReplaceFooterHTML());
+  }
+  if (blockAcceptsInlineImage(block)) {
+    left.push(getNoteListImageFooterHTML(block));
   }
   if (block.type === 'document' && block.docData) {
     left.push(getDocumentFooterActionsHTML(block));
@@ -1167,9 +1328,12 @@ function syncBlockFooter(el, block) {
       '<button type="button" class="block-footer-btn" data-action="open-whiteboard">Open whiteboard</button>'
     );
   }
+  if (block.type === 'list') {
+    left.push(getListRevealFooterHTML(block));
+  }
 
   const start = left.length ? `<div class="block-footer-start">${left.join('')}</div>` : '';
-  footer.innerHTML = `${start}<button type="button" class="btn-present-block" data-action="present" title="Present fullscreen">▶ Present</button>`;
+  footer.innerHTML = `${start}${getPresentFooterButtonHTML()}`;
 }
 
 function getWhiteboardPreviewHTML(block) {
@@ -1247,7 +1411,7 @@ function getBodyHTML(block) {
         <div class="block-image-placeholder">
             <p>Drop an image or choose a file</p>
             <label><input type="file" accept="image/*" data-field="image" /> Choose image</label>
-            <p style="margin-top:12px;font-size:0.8rem">or paste an image (Ctrl+V)</p>
+            <p style="margin-top:12px;font-size:0.8rem">Select card, then paste (⌘V / Ctrl+V)</p>
           </div>`;
     case 'document':
       return getDocumentBodyHTML(block, title);
@@ -1261,11 +1425,20 @@ function getBodyHTML(block) {
         </div>`;
     }
     case 'list':
-      return `<input class="block-title-input" type="text" value="${title}" placeholder="List title" data-field="title" />
-        <div class="block-content" contenteditable="true" data-field="content" data-placeholder="Bullet points…">${block.content || '<ul><li>Item one</li><li>Item two</li></ul>'}</div>`;
+      return getTextCardBodyHTML(block, {
+        titlePlaceholder: 'List title',
+        contentPlaceholder: 'Bullet points…',
+        fallbackContent: '<ul><li>Item one</li><li>Item two</li></ul>',
+      });
+    case 'sticky':
+      return `<div class="block-sticky-body block-content" contenteditable="true" data-field="content" data-placeholder="Quick thought…">${block.content || '<p></p>'}</div>`;
     case 'table':
       return `<input class="block-title-input" type="text" value="${title}" placeholder="Table title" data-field="title" />
         <div class="block-table-wrap">${block.tableHtml || defaultTableHtml()}</div>`;
+    case 'poll':
+      return getPollEditorHTML(block);
+    case 'quiz':
+      return getQuizEditorHTML(block);
     case 'timer': {
       const sec = block.timerSec || 300;
       return `<input class="block-title-input" type="text" value="${title}" placeholder="Timer label" data-field="title" />
@@ -1285,8 +1458,11 @@ function getBodyHTML(block) {
         <div class="block-whiteboard-preview">${getWhiteboardPreviewHTML(block)}</div>
         <button type="button" class="btn-open-whiteboard" data-action="open-whiteboard">Open whiteboard</button>`;
     default:
-      return `<input class="block-title-input" type="text" value="${title}" placeholder="Title" data-field="title" />
-        <div class="block-content" contenteditable="true" data-field="content" data-placeholder="Write your note…">${block.content || ''}</div>`;
+      return getTextCardBodyHTML(block, {
+        titlePlaceholder: 'Title',
+        contentPlaceholder: 'Write your note…',
+        fallbackContent: '',
+      });
   }
 }
 
@@ -1649,6 +1825,143 @@ function bindBodyInputs(el, block) {
       persist();
     };
   }
+
+  if (block.type === 'poll') {
+    $$('[data-poll-option]', el).forEach((input) => {
+      input.oninput = () => {
+        const i = Number(input.dataset.pollOption);
+        if (!Number.isFinite(i)) return;
+        block.pollOptions[i] = input.value;
+        persist();
+      };
+    });
+  }
+
+  if (block.type === 'quiz') {
+    $$('[data-quiz-question]', el).forEach((input) => {
+      input.oninput = () => {
+        const qi = Number(input.dataset.quizQuestion);
+        if (!Number.isFinite(qi) || !block.quizQuestions[qi]) return;
+        block.quizQuestions[qi].question = input.value;
+        persist();
+      };
+    });
+    $$('[data-quiz-option]', el).forEach((input) => {
+      input.oninput = () => {
+        const qi = Number(input.dataset.quizQ);
+        const i = Number(input.dataset.quizOption);
+        if (!Number.isFinite(qi) || !Number.isFinite(i) || !block.quizQuestions[qi]) return;
+        block.quizQuestions[qi].options[i] = input.value;
+        persist();
+      };
+    });
+    $$('[data-quiz-correct]', el).forEach((radio) => {
+      radio.onchange = () => {
+        if (!radio.checked) return;
+        const qi = Number(radio.dataset.quizQ);
+        const i = Number(radio.dataset.quizCorrect);
+        if (!Number.isFinite(qi) || !Number.isFinite(i) || !block.quizQuestions[qi]) return;
+        block.quizQuestions[qi].correct = i;
+        persist();
+      };
+    });
+  }
+}
+
+function handleQuizCardAction(block, action, questionIndex, optionIndex, mode) {
+  normalizeQuizData(block);
+  const qi = Number(questionIndex);
+  const q = Number.isFinite(qi) ? block.quizQuestions[qi] : null;
+
+  if (action === 'quiz-add-question') {
+    block.quizQuestions.push(defaultQuizQuestion());
+    persist();
+    render();
+    showToast('Question added');
+    return;
+  }
+
+  if (action === 'quiz-remove-question' && block.quizQuestions.length > 1 && q) {
+    block.quizQuestions.splice(qi, 1);
+    persist();
+    render();
+    showToast('Question removed');
+    return;
+  }
+
+  if (!q) return;
+
+  if (action === 'quiz-mode' && (mode === 'mc' || mode === 'tf')) {
+    if (q.mode === mode) return;
+    q.mode = mode;
+    if (mode === 'tf') {
+      q.options = ['True', 'False'];
+      q.correct = 0;
+    } else {
+      q.options = defaultQuizOptions();
+      q.correct = 0;
+    }
+    normalizeQuizQuestion(q);
+    persist();
+    render();
+    showToast(mode === 'tf' ? 'True / False' : 'Multi-choice');
+    return;
+  }
+
+  if (action === 'quiz-add' && q.mode === 'mc') {
+    q.options.push(`Option ${q.options.length + 1}`);
+    persist();
+    render();
+    showToast('Option added');
+    return;
+  }
+
+  if (action === 'quiz-remove' && q.mode === 'mc' && q.options.length > 2 && Number.isFinite(optionIndex)) {
+    q.options.splice(optionIndex, 1);
+    if (q.correct >= q.options.length) {
+      q.correct = q.options.length - 1;
+    } else if (q.correct > optionIndex) {
+      q.correct -= 1;
+    }
+    persist();
+    render();
+    showToast('Option removed');
+  }
+}
+
+function syncPollVoteLabels(el, block) {
+  normalizePollData(block);
+  $$('[data-poll-option]', el).forEach((input) => {
+    const i = Number(input.dataset.pollOption);
+    const badge = input.closest('.block-poll-option')?.querySelector('.block-poll-votes');
+    if (badge && Number.isFinite(i)) badge.textContent = String(block.pollVotes[i] || 0);
+  });
+}
+
+function handlePollCardAction(block, el, action, index) {
+  normalizePollData(block);
+  if (action === 'poll-add') {
+    block.pollOptions.push(`Option ${block.pollOptions.length + 1}`);
+    block.pollVotes.push(0);
+    persist();
+    render();
+    showToast('Option added');
+    return;
+  }
+  if (action === 'poll-remove' && block.pollOptions.length > 2 && Number.isFinite(index)) {
+    block.pollOptions.splice(index, 1);
+    block.pollVotes.splice(index, 1);
+    persist();
+    render();
+    showToast('Option removed');
+    return;
+  }
+  if (action === 'poll-reset') {
+    block.pollVotes = block.pollOptions.map(() => 0);
+    persist();
+    syncPollVoteLabels(el, block);
+    showToast('Votes reset');
+  }
 }
 
 function bindBlockEvents(el, block) {
@@ -1707,11 +2020,8 @@ function bindBlockEvents(el, block) {
 
     const action = btn.dataset.action;
     if (action === 'delete') {
-      state.blocks = state.blocks.filter((b) => b.id !== block.id);
-      removeFromPresentOrder(block.id);
-      if (selectedId === block.id) selectedId = null;
       closeAllDropdowns();
-      render();
+      deleteBlock(block.id);
     } else if (action === 'duplicate') {
       duplicateBlock(block);
       closeAllDropdowns();
@@ -1742,6 +2052,50 @@ function bindBlockEvents(el, block) {
       return;
     }
 
+    if (e.target.closest('[data-action="remove-image"]')) {
+      e.preventDefault();
+      e.stopPropagation();
+      delete block.imageData;
+      render();
+      persist();
+      showToast('Image removed');
+      return;
+    }
+
+    if (e.target.closest('[data-action="toggle-list-reveal"]')) {
+      e.preventDefault();
+      e.stopPropagation();
+      block.listRevealAll = !block.listRevealAll;
+      syncBlockFooter(el, block);
+      persist();
+      showToast(listUsesRevealInPresent(block) ? 'Bullet reveal on' : 'Bullet reveal off');
+      return;
+    }
+
+    const pollBtn = e.target.closest('[data-action="poll-add"], [data-action="poll-remove"], [data-action="poll-reset"]');
+    if (pollBtn && block.type === 'poll') {
+      e.preventDefault();
+      e.stopPropagation();
+      handlePollCardAction(block, el, pollBtn.dataset.action, Number(pollBtn.dataset.pollIndex));
+      return;
+    }
+
+    const quizBtn = e.target.closest(
+      '[data-action="quiz-add"], [data-action="quiz-remove"], [data-action="quiz-mode"], [data-action="quiz-add-question"], [data-action="quiz-remove-question"]'
+    );
+    if (quizBtn && block.type === 'quiz') {
+      e.preventDefault();
+      e.stopPropagation();
+      handleQuizCardAction(
+        block,
+        quizBtn.dataset.action,
+        Number(quizBtn.dataset.quizQ),
+        Number(quizBtn.dataset.quizIndex),
+        quizBtn.dataset.mode
+      );
+      return;
+    }
+
     const timerBtn = e.target.closest('[data-timer-sec], [data-action="start-timer"]');
     if (timerBtn) {
       e.preventDefault();
@@ -1760,7 +2114,7 @@ function bindBlockEvents(el, block) {
 
     if (
       e.target.closest(
-        'input, textarea, [contenteditable], label, a, .block-footer-btn, .doc-upload-btn, .btn-open-whiteboard'
+        'input, textarea, [contenteditable], label, a, .block-footer-btn, .doc-upload-btn, .btn-open-whiteboard, .block-poll, .block-quiz'
       )
     ) {
       if (selectedId !== block.id) selectBlock(block.id);
@@ -1810,7 +2164,7 @@ function bindBlockEvents(el, block) {
     });
   }
 
-  if (block.type === 'image') {
+  if (block.type === 'image' || blockAcceptsInlineImage(block)) {
     el.addEventListener('dragover', (e) => {
       if ([...e.dataTransfer.types].includes('Files')) {
         e.preventDefault();
@@ -1831,17 +2185,9 @@ function bindBlockEvents(el, block) {
   el.addEventListener(
     'paste',
     (e) => {
-      if (block.type !== 'image') return;
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      for (const item of items) {
-        if (item.type.startsWith('image/')) {
-          e.preventDefault();
-          const file = item.getAsFile();
-          if (file) readImageFile(file, block, el);
-          break;
-        }
-      }
+      if (e.defaultPrevented) return;
+      if (block.id !== selectedId) return;
+      tryPasteImageToSelectedCard(e);
     },
     true
   );
@@ -1979,6 +2325,14 @@ function selectBlock(id) {
   if (el && block) {
     el.classList.add('is-selected');
     positionBlock(el, block);
+    if (blockAcceptsImagePaste(block)) {
+      requestAnimationFrame(() => {
+        const editing = document.activeElement?.closest(
+          `[data-block-id="${id}"] [contenteditable="true"], [data-block-id="${id}"] input, [data-block-id="${id}"] textarea`
+        );
+        if (!editing) el.focus({ preventScroll: true });
+      });
+    }
   }
   updateAlignToolbar();
 }
@@ -2132,19 +2486,296 @@ function clearBlockTypeFields(block) {
   delete block.timerSec;
   delete block.blankContent;
   delete block.blankDraw;
+  delete block.listRevealAll;
+  delete block.pollOptions;
+  delete block.pollVotes;
+  delete block.quizMode;
+  delete block.quizOptions;
+  delete block.quizCorrect;
+  delete block.quizQuestions;
+}
+
+function defaultPollOptions() {
+  return ['Option A', 'Option B', 'Option C'];
+}
+
+function normalizePollData(block) {
+  if (block?.type !== 'poll') return;
+  if (!Array.isArray(block.pollOptions) || block.pollOptions.length < 2) {
+    block.pollOptions = defaultPollOptions();
+  }
+  while (block.pollOptions.length < 2) {
+    block.pollOptions.push(`Option ${block.pollOptions.length + 1}`);
+  }
+  const prev = Array.isArray(block.pollVotes) ? block.pollVotes : [];
+  if (block.pollVotes?.length !== block.pollOptions.length) {
+    block.pollVotes = block.pollOptions.map((_, i) => Math.max(0, Number(prev[i]) || 0));
+  }
+}
+
+function getPollTotalVotes(block) {
+  normalizePollData(block);
+  return block.pollVotes.reduce((sum, n) => sum + (Number(n) || 0), 0);
+}
+
+function getPollEditorHTML(block) {
+  normalizePollData(block);
+  const title = escapeHtml(block.title || '');
+  const options = block.pollOptions
+    .map((opt, i) => {
+      const votes = block.pollVotes[i] || 0;
+      const removeDisabled = block.pollOptions.length <= 2 ? ' disabled' : '';
+      return `<li class="block-poll-option">
+          <input type="text" class="block-poll-option-input" value="${escapeAttr(opt)}" placeholder="Option ${i + 1}" data-poll-option="${i}" />
+          <span class="block-poll-votes" title="Votes">${votes}</span>
+          <button type="button" class="block-poll-remove" data-action="poll-remove" data-poll-index="${i}" aria-label="Remove option"${removeDisabled}>×</button>
+        </li>`;
+    })
+    .join('');
+
+  return `<input class="block-title-input" type="text" value="${title}" placeholder="Poll question" data-field="title" />
+    <div class="block-poll">
+      <ul class="block-poll-options">${options}</ul>
+      <div class="block-poll-actions">
+        <button type="button" class="block-poll-add" data-action="poll-add">+ Add option</button>
+        <button type="button" class="block-poll-reset" data-action="poll-reset">Reset votes</button>
+      </div>
+    </div>`;
+}
+
+function getPollPresentHTML(block) {
+  normalizePollData(block);
+  const total = getPollTotalVotes(block);
+  const options = block.pollOptions
+    .map((opt, i) => {
+      const votes = block.pollVotes[i] || 0;
+      const pct = total > 0 ? Math.round((votes / total) * 100) : 0;
+      const label = escapeHtml(opt.trim() || `Option ${i + 1}`);
+      return `<button type="button" class="present-poll-option" data-poll-vote="${i}">
+          <span class="present-poll-option-row">
+            <span class="present-poll-option-label">${label}</span>
+            <span class="present-poll-option-meta">${votes}${total > 0 ? ` · ${pct}%` : ''}</span>
+          </span>
+          <span class="present-poll-bar" style="--poll-pct: ${pct}%"></span>
+        </button>`;
+    })
+    .join('');
+
+  return `<div class="present-poll">${options}</div>`;
+}
+
+function defaultQuizOptions() {
+  return ['Option A', 'Option B', 'Option C'];
+}
+
+function defaultQuizQuestion(overrides = {}) {
+  return {
+    question: '',
+    mode: 'mc',
+    options: defaultQuizOptions(),
+    correct: 0,
+    ...overrides,
+  };
+}
+
+function normalizeQuizQuestion(q) {
+  if (!q) return defaultQuizQuestion();
+  if (q.mode !== 'tf') q.mode = 'mc';
+
+  if (q.mode === 'tf') {
+    q.options = ['True', 'False'];
+    q.correct = Number(q.correct) === 1 ? 1 : 0;
+    return q;
+  }
+
+  if (!Array.isArray(q.options) || q.options.length < 2) {
+    q.options = defaultQuizOptions();
+  }
+  while (q.options.length < 2) {
+    q.options.push(`Option ${q.options.length + 1}`);
+  }
+  const c = Number(q.correct);
+  q.correct = Number.isFinite(c) && c >= 0 && c < q.options.length ? c : 0;
+  q.question = q.question ?? '';
+  return q;
+}
+
+function normalizeQuizData(block) {
+  if (block?.type !== 'quiz') return;
+
+  if (!Array.isArray(block.quizQuestions) || block.quizQuestions.length === 0) {
+    if (block.quizOptions || block.quizMode || block.title) {
+      block.quizQuestions = [
+        normalizeQuizQuestion({
+          question: block.title || '',
+          mode: block.quizMode === 'tf' ? 'tf' : 'mc',
+          options: Array.isArray(block.quizOptions) ? [...block.quizOptions] : undefined,
+          correct: block.quizCorrect,
+        }),
+      ];
+    } else {
+      block.quizQuestions = [defaultQuizQuestion()];
+    }
+    delete block.quizMode;
+    delete block.quizOptions;
+    delete block.quizCorrect;
+    if (block.quizQuestions.length === 1 && block.title === block.quizQuestions[0].question) {
+      block.title = '';
+    }
+  }
+
+  block.quizQuestions = block.quizQuestions.map((q) => normalizeQuizQuestion({ ...q }));
+}
+
+function getQuizQuestions(block) {
+  normalizeQuizData(block);
+  return block.quizQuestions;
+}
+
+function getQuizQuestionEditorHTML(block, q, qi, total) {
+  const isTf = q.mode === 'tf';
+  const options = q.options
+    .map((opt, i) => {
+      const checked = q.correct === i ? ' checked' : '';
+      const removeDisabled = isTf || q.options.length <= 2 ? ' disabled' : '';
+      const readonly = isTf ? ' readonly' : '';
+      return `<li class="block-quiz-option">
+          <input type="radio" class="block-quiz-correct" name="quiz-correct-${block.id}-${qi}" data-quiz-q="${qi}" data-quiz-correct="${i}"${checked} aria-label="Mark as correct answer" title="Correct answer" />
+          <input type="text" class="block-quiz-option-input" value="${escapeAttr(opt)}" placeholder="${isTf ? '' : `Option ${i + 1}`}" data-quiz-q="${qi}" data-quiz-option="${i}"${readonly} />
+          <button type="button" class="block-quiz-remove" data-action="quiz-remove" data-quiz-q="${qi}" data-quiz-index="${i}" aria-label="Remove option"${removeDisabled}>×</button>
+        </li>`;
+    })
+    .join('');
+
+  const removeQDisabled = total <= 1 ? ' disabled' : '';
+
+  return `<section class="block-quiz-item" data-quiz-item="${qi}">
+      <div class="block-quiz-item-head">
+        <span class="block-quiz-item-label">Question ${qi + 1}</span>
+        <button type="button" class="block-quiz-remove-q" data-action="quiz-remove-question" data-quiz-q="${qi}" aria-label="Remove question"${removeQDisabled}>×</button>
+      </div>
+      <input type="text" class="block-quiz-question-input" value="${escapeAttr(q.question || '')}" placeholder="Enter question" data-quiz-question="${qi}" />
+      <div class="block-quiz-mode" role="group" aria-label="Question ${qi + 1} type">
+        <button type="button" class="block-quiz-mode-btn${isTf ? '' : ' is-active'}" data-action="quiz-mode" data-mode="mc" data-quiz-q="${qi}">Multi-choice</button>
+        <button type="button" class="block-quiz-mode-btn${isTf ? ' is-active' : ''}" data-action="quiz-mode" data-mode="tf" data-quiz-q="${qi}">True / False</button>
+      </div>
+      <p class="block-quiz-hint">Select the correct answer</p>
+      <ul class="block-quiz-options">${options}</ul>
+      <div class="block-quiz-actions">
+        <button type="button" class="block-quiz-add" data-action="quiz-add" data-quiz-q="${qi}"${isTf ? ' hidden' : ''}>+ Add option</button>
+      </div>
+    </section>`;
+}
+
+function getQuizEditorHTML(block) {
+  normalizeQuizData(block);
+  const title = escapeHtml(block.title || '');
+  const questions = block.quizQuestions
+    .map((q, qi) => getQuizQuestionEditorHTML(block, q, qi, block.quizQuestions.length))
+    .join('');
+
+  return `<input class="block-title-input" type="text" value="${title}" placeholder="Quiz title (optional)" data-field="title" />
+    <div class="block-quiz">
+      <div class="block-quiz-questions">${questions}</div>
+      <button type="button" class="block-quiz-add-question" data-action="quiz-add-question">+ Add question</button>
+    </div>`;
+}
+
+function quizHasMorePresentSteps(block) {
+  const questions = getQuizQuestions(block);
+  return presentQuizQuestionAnswered && presentQuizQuestionIndex < questions.length - 1;
+}
+
+function getPresentQuizRevealHintHTML(block) {
+  if (!quizHasMorePresentSteps(block)) return '';
+  return '<p class="present-reveal-hint">Click or press Space for next question</p>';
+}
+
+function getQuizPresentHTML(block) {
+  const questions = getQuizQuestions(block);
+  const qi = Math.min(presentQuizQuestionIndex, Math.max(0, questions.length - 1));
+  const q = questions[qi];
+  const answered = presentQuizQuestionAnswered;
+  const picked = presentQuizPickedIndex;
+  const correct = q.correct;
+
+  const progress =
+    questions.length > 1
+      ? `<p class="present-quiz-progress">Question ${qi + 1} of ${questions.length}</p>`
+      : '';
+
+  const questionHeading = q.question?.trim()
+    ? `<h2 class="present-quiz-question">${escapeHtml(q.question.trim())}</h2>`
+    : `<h2 class="present-quiz-question present-quiz-question--empty">Question ${qi + 1}</h2>`;
+
+  const options = q.options
+    .map((opt, i) => {
+      const label = escapeHtml(opt.trim() || `Option ${i + 1}`);
+      let cls = 'present-quiz-option';
+      if (answered) {
+        if (i === correct) cls += ' is-correct';
+        else if (i === picked) cls += ' is-wrong';
+        else cls += ' is-dimmed';
+      }
+      return `<button type="button" class="${cls}" data-quiz-pick="${i}"${answered ? ' disabled' : ''}>${label}</button>`;
+    })
+    .join('');
+
+  const feedback =
+    answered && picked === correct
+      ? '<p class="present-quiz-feedback is-correct">Correct!</p>'
+      : answered
+        ? '<p class="present-quiz-feedback is-wrong">Not quite — see the correct answer highlighted.</p>'
+        : '<p class="present-quiz-hint">Tap an answer</p>';
+
+  return `${progress}${questionHeading}${feedback}<div class="present-quiz">${options}</div>${getPresentQuizRevealHintHTML(block)}`;
+}
+
+function ensurePresentQuizState(block) {
+  if (!block || block.type !== 'quiz') {
+    presentQuizRevealBlockId = null;
+    presentQuizQuestionIndex = 0;
+    presentQuizQuestionAnswered = false;
+    presentQuizPickedIndex = null;
+    return;
+  }
+  if (block.id !== presentQuizRevealBlockId) {
+    presentQuizRevealBlockId = block.id;
+    presentQuizQuestionIndex = 0;
+    presentQuizQuestionAnswered = false;
+    presentQuizPickedIndex = null;
+  }
+  const total = getQuizQuestions(block).length;
+  if (presentQuizQuestionIndex >= total) presentQuizQuestionIndex = Math.max(0, total - 1);
 }
 
 function applyBlockTypeDefaults(block, type) {
+  const prevType = block.type;
+  const prevImage = block.imageData;
+  const prevListRevealAll = prevType === 'list' && type === 'list' ? block.listRevealAll : false;
   const carryToWhiteboard =
     type === 'whiteboard' && !block.blankContent
+      ? block.content || ''
+      : '';
+  const carryToSticky =
+    type === 'sticky' && (prevType === 'note' || prevType === 'heading' || prevType === 'list')
       ? block.content || ''
       : '';
   block.type = type;
   clearBlockTypeFields(block);
 
+  if (
+    (type === 'note' || type === 'list') &&
+    prevImage &&
+    (prevType === 'note' || prevType === 'list' || prevType === 'image')
+  ) {
+    block.imageData = prevImage;
+  }
+
   if (type === 'list') {
     block.content = '<ul><li></li><li></li><li></li></ul>';
     if (block.h < 220) block.h = 260;
+    if (prevType === 'list') block.listRevealAll = !!prevListRevealAll;
   } else if (type === 'table') {
     block.tableHtml = defaultTableHtml();
     if (block.h < 200) block.h = 240;
@@ -2163,6 +2794,23 @@ function applyBlockTypeDefaults(block, type) {
     block.timerSec = block.timerSec || 300;
     if (block.w < 280) block.w = 300;
     if (block.h < 200) block.h = 220;
+  } else if (type === 'poll') {
+    block.pollOptions = defaultPollOptions();
+    block.pollVotes = block.pollOptions.map(() => 0);
+    if (block.w < 320) block.w = 340;
+    if (block.h < 260) block.h = 300;
+  } else if (type === 'sticky') {
+    block.content = carryToSticky?.replace(/<[^>]+>/g, '').trim()
+      ? carryToSticky
+      : '<p></p>';
+    if (block.w > 260) block.w = 220;
+    if (block.h > 160) block.h = 130;
+    if (block.w < 180) block.w = 220;
+    if (block.h < 100) block.h = 130;
+  } else if (type === 'quiz') {
+    block.quizQuestions = [defaultQuizQuestion()];
+    if (block.w < 320) block.w = 340;
+    if (block.h < 360) block.h = 400;
   } else if (type === 'whiteboard') {
     block.blankContent = block.blankContent || carryToWhiteboard || '';
     block.blankDraw = block.blankDraw || null;
@@ -2181,6 +2829,10 @@ function focusBlockAfterTypeChange(block, type) {
     }
     if (type === 'image') {
       $('[data-field="image"]', el)?.click();
+      return;
+    }
+    if (type === 'sticky') {
+      $('[data-field="content"]', el)?.focus();
       return;
     }
     const input = $('.block-title-input', el) || $('[data-field="content"]', el);
@@ -2208,6 +2860,78 @@ function convertBlockToType(block, type) {
   focusBlockAfterTypeChange(block, type);
 }
 
+function getMindMapCenterBlock() {
+  return state.mindMapCenterId ? getBlock(state.mindMapCenterId) : null;
+}
+
+function getMindMapBranchCount() {
+  if (!state.mindMapCenterId) return 0;
+  return state.blocks.filter((b) => b.id !== state.mindMapCenterId).length;
+}
+
+/** Place branch cards clockwise from 12 o'clock around the hub. */
+function getMindMapPlacement(branchIndex, slotCount, centerBlock) {
+  const center = centerBlock || getMindMapCenterBlock();
+  if (!center) return null;
+
+  const cx = center.x + center.w / 2;
+  const cy = center.y + center.h / 2;
+  const radius = Math.max(center.w, center.h) * 0.55 + 150;
+  const slots = Math.max(6, slotCount);
+  const angle = -Math.PI / 2 + (branchIndex * 2 * Math.PI) / slots;
+  const { w, h } = MIND_MAP_BRANCH;
+
+  return {
+    x: Math.round(cx + radius * Math.cos(angle) - w / 2),
+    y: Math.round(cy + radius * Math.sin(angle) - h / 2),
+    w,
+    h,
+  };
+}
+
+function centerMindMapHub(blocks, centerId) {
+  const center = blocks.find((b) => b.id === centerId);
+  if (!center) return;
+
+  const { vw, vh, pad } = getViewportLayoutMetrics();
+  center.w = center.w || MIND_MAP_HUB.w;
+  center.h = center.h || MIND_MAP_HUB.h;
+  center.x = Math.round(Math.max(pad, (vw - center.w) / 2));
+  center.y = Math.round(Math.max(pad, (vh - center.h) / 2));
+}
+
+function positionMindMapBranches(blocks, centerId) {
+  const center = blocks.find((b) => b.id === centerId);
+  if (!center) return;
+
+  const branches = blocks
+    .filter((b) => b.id !== centerId)
+    .sort((a, b) => (a.branchIndex ?? 0) - (b.branchIndex ?? 0));
+  const slots = Math.max(6, branches.length);
+
+  branches.forEach((branch, i) => {
+    const place = getMindMapPlacement(i, slots, center);
+    if (!place) return;
+    branch.x = place.x;
+    branch.y = place.y;
+    branch.w = place.w;
+    branch.h = place.h;
+    if (!branch.accent) branch.accent = MIND_MAP_BRANCH.accent;
+  });
+}
+
+function layoutMindMapBlocks(blocks, centerId) {
+  const center = blocks.find((b) => b.id === centerId);
+  if (center) {
+    center.mindMapCenter = true;
+    center.accent = center.accent || MIND_MAP_HUB.accent;
+    center.w = center.w || MIND_MAP_HUB.w;
+    center.h = center.h || MIND_MAP_HUB.h;
+  }
+  centerMindMapHub(blocks, centerId);
+  positionMindMapBranches(blocks, centerId);
+}
+
 function addBlock(type) {
   const offsets = state.blocks.length * 24;
   const block = {
@@ -2215,7 +2939,12 @@ function addBlock(type) {
     type,
     x: 120 + offsets,
     y: 120 + offsets,
-    w: type === 'heading' || type === 'whiteboard' ? 360 : 320,
+    w:
+      type === 'sticky'
+        ? 220
+        : type === 'heading' || type === 'whiteboard'
+          ? 360
+          : 320,
     h:
       type === 'image'
         ? 280
@@ -2225,7 +2954,13 @@ function addBlock(type) {
             ? 280
             : type === 'table'
               ? 220
-              : 200,
+              : type === 'poll'
+                ? 300
+                : type === 'quiz'
+                  ? 320
+                  : type === 'sticky'
+                    ? 130
+                    : 200,
     z: Math.max(0, ...state.blocks.map((b) => b.z || 0)) + 1,
     accent: ACCENTS[state.blocks.length % ACCENTS.length],
     title: '',
@@ -2233,6 +2968,18 @@ function addBlock(type) {
   };
 
   applyBlockTypeDefaults(block, type);
+
+  if (state.mindMapCenterId && block.id !== state.mindMapCenterId) {
+    const branchIndex = getMindMapBranchCount();
+    const place = getMindMapPlacement(branchIndex, Math.max(6, branchIndex + 1));
+    if (place) {
+      block.x = place.x;
+      block.y = place.y;
+      block.w = place.w;
+      block.h = place.h;
+      block.accent = MIND_MAP_BRANCH.accent;
+    }
+  }
 
   state.blocks.push(block);
   addToPresentOrder(block.id);
@@ -2259,6 +3006,66 @@ function duplicateBlock(block) {
   showToast('Block duplicated');
 }
 
+function getClipboardImageFile(clipboardData) {
+  if (!clipboardData) return null;
+
+  const items = clipboardData.items;
+  if (items?.length) {
+    for (const item of items) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) return file;
+      }
+    }
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) return file;
+      }
+    }
+  }
+
+  const files = clipboardData.files;
+  if (files?.length) {
+    for (const file of files) {
+      if (file.type.startsWith('image/')) return file;
+    }
+  }
+
+  return null;
+}
+
+function blockAcceptsImagePaste(block) {
+  return !!block && (block.type === 'image' || blockAcceptsInlineImage(block));
+}
+
+function shouldHandleDocumentImagePaste(e) {
+  if (presentOverlay && !presentOverlay.hidden) return false;
+  if (e.target.closest('dialog')) return false;
+  const blank = $('#blankOverlay');
+  if (blank && !blank.hidden) return false;
+  if (e.target.closest('.board-title')) return false;
+  if (e.target.closest('.toolbar') && !e.target.closest('.block')) return false;
+  return true;
+}
+
+/** Paste image from clipboard onto the selected image / note / list card. */
+function tryPasteImageToSelectedCard(e) {
+  if (!shouldHandleDocumentImagePaste(e)) return false;
+  if (!selectedId) return false;
+
+  const block = getBlock(selectedId);
+  if (!blockAcceptsImagePaste(block)) return false;
+
+  const file = getClipboardImageFile(e.clipboardData);
+  if (!file) return false;
+
+  e.preventDefault();
+  e.stopPropagation();
+  readImageFile(file, block, $(`[data-block-id="${block.id}"]`, canvasInner));
+  return true;
+}
+
 function readImageFile(file, block, el) {
   if (!file.type.startsWith('image/')) {
     showToast('Choose an image file');
@@ -2267,11 +3074,13 @@ function readImageFile(file, block, el) {
   const reader = new FileReader();
   reader.onload = () => {
     block.imageData = reader.result;
-    block.type = 'image';
+    if (blockAcceptsInlineImage(block) && block.h < 300) {
+      block.h = Math.max(block.h, 300);
+    }
     selectedId = block.id;
     render();
     persist();
-    showToast('Image added');
+    showToast(blockAcceptsInlineImage(block) ? 'Image added to card' : 'Image added');
   };
   reader.onerror = () => showToast('Could not read image');
   reader.readAsDataURL(file);
@@ -2351,6 +3160,11 @@ function openPresent(blockId) {
   const idx = blocks.findIndex((b) => b.id === blockId);
   if (idx < 0) return;
   presentIndex = idx;
+  presentRevealBlockId = null;
+  presentQuizRevealBlockId = null;
+  presentQuizQuestionIndex = 0;
+  presentQuizQuestionAnswered = false;
+  presentQuizPickedIndex = null;
   presentExpanded = false;
   presentOverlay.hidden = false;
   document.body.style.overflow = 'hidden';
@@ -2363,6 +3177,8 @@ function openPresent(blockId) {
 
 function closePresent() {
   presentExpanded = false;
+  presentRevealBlockId = null;
+  presentListRevealCount = 1;
   presentOverlay.classList.remove('present-expanded');
   presentStage.classList.remove('present-stage--expanded');
   presentOverlay.hidden = true;
@@ -2377,6 +3193,9 @@ async function renderPresent() {
   const block = blocks[presentIndex];
   if (!block) return;
 
+  ensurePresentRevealState(block);
+  ensurePresentQuizState(block);
+
   if (block.type === 'document' && isDocxDocument(block) && block.docData && !block.docPreviewHtml) {
     presentStage.innerHTML =
       '<article class="present-card present-card-loading"><p>Building Word preview…</p></article>';
@@ -2384,11 +3203,18 @@ async function renderPresent() {
   }
 
   const expandBtn = `<button type="button" class="present-expand" aria-label="Expand to full screen" title="Expand to full screen" aria-pressed="false">${PRESENT_EXPAND_ICON}</button>`;
-  const typeClass = block.type ? ` present-card--${block.type}` : '';
+  const typeClass =
+    (block.type ? ` present-card--${block.type}` : '') +
+    (presentCardHasInlineImage(block) ? ' present-card--has-inline-image' : '') +
+    (listUsesRevealInPresent(block) ? ' present-card--list-reveal' : '');
   const titleAttr = block.title ? ` aria-label="${escapeAttr(block.title)}"` : '';
   presentStage.innerHTML = `<article class="present-card${typeClass}"${titleAttr}>${expandBtn}${getPresentHTML(block, { showTitle: !presentExpanded })}</article>`;
   setPresentExpanded(presentExpanded);
   bindPresentExpand();
+  bindPresentListReveal();
+  bindPresentPoll();
+  bindPresentQuiz();
+  bindPresentQuizReveal();
   presentCounter.textContent = `${presentIndex + 1} / ${blocks.length}`;
 }
 
@@ -2435,13 +3261,23 @@ function getPresentHTML(block, { showTitle = true } = {}) {
     }
     case 'table':
       return title + `<div class="present-body present-body--text">${block.tableHtml || defaultTableHtml()}</div>`;
-    case 'list':
-      return title + `<div class="present-body present-body--text">${block.content || '<ul><li></li></ul>'}</div>`;
+    case 'list': {
+      const body = buildPresentListBodyHTML(block);
+      return (
+        wrapPresentTextCardHTML(block, body, { showTitle }) + getPresentListRevealHintHTML(block)
+      );
+    }
     case 'timer':
       return (
         title +
         `<p class="present-timer" data-present-timer>${formatTimer(getTimerRemainingSec())}</p>`
       );
+    case 'poll':
+      return title + getPollPresentHTML(block);
+    case 'quiz':
+      return title + getQuizPresentHTML(block);
+    case 'sticky':
+      return `<div class="present-body present-body--sticky present-body--text">${block.content || '<p>Empty sticky</p>'}</div>`;
     case 'whiteboard': {
       let body = '';
       if ((block.blankContent || '').trim()) {
@@ -2454,16 +3290,65 @@ function getPresentHTML(block, { showTitle = true } = {}) {
       return title + body;
     }
     case 'heading':
-    case 'note':
       return title + `<div class="present-body present-body--text">${block.content || '<p>Empty block</p>'}</div>`;
+    case 'note':
+      return wrapPresentTextCardHTML(block, block.content || '<p>Empty block</p>', { showTitle });
     default:
       return title + `<div class="present-body present-body--text">${block.content || '<p>Empty block</p>'}</div>`;
   }
 }
 
+function presentAdvance() {
+  const blocks = getPresentBlocks();
+  const block = blocks[presentIndex];
+  if (block && listUsesRevealInPresent(block)) {
+    const total = countListItemsInContent(block.content);
+    if (presentListRevealCount < total) {
+      presentListRevealCount += 1;
+      renderPresent();
+      return;
+    }
+  }
+  if (block?.type === 'quiz' && quizHasMorePresentSteps(block)) {
+    presentQuizQuestionIndex += 1;
+    presentQuizQuestionAnswered = false;
+    presentQuizPickedIndex = null;
+    renderPresent();
+    return;
+  }
+  presentNext();
+}
+
+function presentRetreat() {
+  const blocks = getPresentBlocks();
+  const block = blocks[presentIndex];
+  if (block && listUsesRevealInPresent(block) && presentListRevealCount > 1) {
+    presentListRevealCount -= 1;
+    renderPresent();
+    return;
+  }
+  if (block?.type === 'quiz') {
+    if (presentQuizQuestionAnswered) {
+      presentQuizQuestionAnswered = false;
+      presentQuizPickedIndex = null;
+      renderPresent();
+      return;
+    }
+    if (presentQuizQuestionIndex > 0) {
+      presentQuizQuestionIndex -= 1;
+      presentQuizQuestionAnswered = false;
+      presentQuizPickedIndex = null;
+      renderPresent();
+      return;
+    }
+  }
+  presentPrev();
+}
+
 function presentNext() {
   const blocks = getPresentBlocks();
   if (blocks.length === 0) return;
+  presentRevealBlockId = null;
   presentIndex = (presentIndex + 1) % blocks.length;
   renderPresent();
 }
@@ -2471,8 +3356,63 @@ function presentNext() {
 function presentPrev() {
   const blocks = getPresentBlocks();
   if (blocks.length === 0) return;
+  presentRevealBlockId = null;
   presentIndex = (presentIndex - 1 + blocks.length) % blocks.length;
   renderPresent();
+}
+
+function bindPresentPoll() {
+  const block = getPresentBlocks()[presentIndex];
+  if (block?.type !== 'poll') return;
+  $$('[data-poll-vote]', presentStage).forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const i = Number(btn.dataset.pollVote);
+      if (!Number.isFinite(i)) return;
+      normalizePollData(block);
+      block.pollVotes[i] = (block.pollVotes[i] || 0) + 1;
+      persist();
+      renderPresent();
+    });
+  });
+}
+
+function bindPresentQuiz() {
+  const block = getPresentBlocks()[presentIndex];
+  if (block?.type !== 'quiz') return;
+  if (presentQuizQuestionAnswered) return;
+  $$('[data-quiz-pick]', presentStage).forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const i = Number(btn.dataset.quizPick);
+      if (!Number.isFinite(i)) return;
+      presentQuizQuestionAnswered = true;
+      presentQuizPickedIndex = i;
+      renderPresent();
+    });
+  });
+}
+
+function bindPresentQuizReveal() {
+  const block = getPresentBlocks()[presentIndex];
+  if (block?.type !== 'quiz' || !presentQuizQuestionAnswered) return;
+  const card = $('.present-card', presentStage);
+  if (!card) return;
+  card.addEventListener('click', (e) => {
+    if (e.target.closest('.present-expand, .present-nav, a, button')) return;
+    if (quizHasMorePresentSteps(block)) presentAdvance();
+  });
+}
+
+function bindPresentListReveal() {
+  const block = getPresentBlocks()[presentIndex];
+  if (!listUsesRevealInPresent(block)) return;
+  const card = $('.present-card', presentStage);
+  if (!card) return;
+  card.addEventListener('click', (e) => {
+    if (e.target.closest('.present-expand, .present-nav, a, button')) return;
+    presentAdvance();
+  });
 }
 
 // --- Present order ---
@@ -2501,9 +3441,34 @@ function removeFromPresentOrder(id) {
   state.presentOrder = state.presentOrder.filter((x) => x !== id);
 }
 
+function deleteBlock(id) {
+  if (!getBlock(id)) return;
+  if (state.mindMapCenterId === id) state.mindMapCenterId = null;
+  state.blocks = state.blocks.filter((b) => b.id !== id);
+  removeFromPresentOrder(id);
+  if (selectedId === id) selectedId = null;
+  persist();
+  render();
+  showToast('Card deleted');
+}
+
 function getBlockOutlineLabel(block) {
   if (block.title?.trim()) return block.title.trim();
-  if (block.type === 'heading' || block.type === 'note') {
+  if (block.type === 'poll') {
+    normalizePollData(block);
+    const first = block.pollOptions?.[0]?.trim();
+    if (first) return first.slice(0, 48);
+  }
+  if (block.type === 'quiz') {
+    const questions = getQuizQuestions(block);
+    const firstQ = questions[0]?.question?.trim();
+    if (firstQ) {
+      const suffix = questions.length > 1 ? ` (+${questions.length - 1})` : '';
+      return (firstQ.slice(0, 40) + suffix).slice(0, 48);
+    }
+    if (questions.length > 1) return `Quiz (${questions.length} questions)`;
+  }
+  if (block.type === 'sticky' || block.type === 'heading' || block.type === 'note') {
     const text = (block.content || '').replace(/<[^>]+>/g, '').trim();
     if (text) return text.slice(0, 48);
   }
@@ -2514,6 +3479,9 @@ function getBlockOutlineLabel(block) {
     list: 'List',
     table: 'Table',
     timer: 'Timer',
+    poll: 'Poll',
+    quiz: 'Quiz',
+    sticky: 'Sticky',
     whiteboard: 'Whiteboard',
   };
   return labels[block.type] || 'Card';
@@ -2918,7 +3886,15 @@ function renderOutline() {
       <div class="outline-item-body">
         <p class="outline-item-title">${escapeHtml(getBlockOutlineLabel(block))}</p>
         <p class="outline-item-meta">${escapeHtml(block.type)}</p>
-      </div>`;
+      </div>
+      <button type="button" class="outline-item-remove" aria-label="Delete card" title="Delete card">×</button>`;
+
+    const removeBtn = $('.outline-item-remove', li);
+    removeBtn?.addEventListener('mousedown', (e) => e.stopPropagation());
+    removeBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteBlock(id);
+    });
 
     li.addEventListener('click', () => {
       selectBlock(id);
@@ -3058,8 +4034,8 @@ function instantiateTemplateBlock(spec, index) {
   const block = {
     id: uid(),
     type,
-    x: LAYOUT_PAD,
-    y: LAYOUT_PAD + index * 48,
+    x: spec.x != null ? spec.x : LAYOUT_PAD,
+    y: spec.y != null ? spec.y : LAYOUT_PAD + index * 48,
     w,
     h,
     z: index + 1,
@@ -3070,6 +4046,9 @@ function instantiateTemplateBlock(spec, index) {
   if (type === 'timer') block.timerSec = spec.timerSec ?? 300;
   if (spec.tableHtml) block.tableHtml = spec.tableHtml;
   if (spec.url) block.url = spec.url;
+  if (spec.mindMapCenter) block.mindMapCenter = true;
+  if (spec.branchIndex != null) block.branchIndex = spec.branchIndex;
+  if (spec.listRevealAll != null) block.listRevealAll = spec.listRevealAll;
   return block;
 }
 
@@ -3097,18 +4076,26 @@ function applyBoardTemplate(templateId) {
   resetTimer();
 
   const blocks = (tpl.blockSpecs || []).map((spec, i) => instantiateTemplateBlock(spec, i));
-  const presentOrder = blocks.map((b) => b.id);
   const board = tpl.board || {};
+  const centerBlock =
+    blocks.find((b) => b.mindMapCenter) || (board.mindMap || tpl.layout === 'mind-map' ? blocks[0] : null);
+
+  if (centerBlock && (board.mindMap || tpl.layout === 'mind-map')) {
+    layoutMindMapBlocks(blocks, centerBlock.id);
+  }
+
+  const presentOrder = blocks.map((b) => b.id);
 
   state = normalizeBoardState({
     title: board.title || tpl.name || DEFAULTS.title,
     background: board.background || DEFAULTS.background,
-    layoutMode: board.layoutMode || 'rows',
+    layoutMode: board.layoutMode ?? null,
     blocks,
     presentOrder,
     blankContent: '',
     blankDraw: null,
     timerSeconds: 300,
+    mindMapCenterId: centerBlock && (board.mindMap || tpl.layout === 'mind-map') ? centerBlock.id : null,
   });
 
   selectedId = null;
@@ -3229,6 +4216,7 @@ function newBoard() {
     blankContent: '',
     blankDraw: null,
     timerSeconds: 300,
+    mindMapCenterId: null,
   });
 
   selectedId = null;
@@ -3254,6 +4242,7 @@ function buildBoardExportJson() {
     blankContent: state.blankContent,
     blankDraw: state.blankDraw,
     timerSeconds: state.timerSeconds,
+    mindMapCenterId: state.mindMapCenterId || null,
   };
   return JSON.stringify(data, null, 2);
 }
@@ -3364,6 +4353,7 @@ function importBoard(file) {
         blankContent: data.blankContent,
         blankDraw: data.blankDraw,
         timerSeconds: data.timerSeconds,
+        mindMapCenterId: data.mindMapCenterId || null,
       });
       setTimerDuration(state.timerSeconds || 300);
       selectedId = null;
@@ -3561,6 +4551,15 @@ function init() {
   $('#presentPrev')?.addEventListener('click', presentPrev);
   $('#presentNext')?.addEventListener('click', presentNext);
 
+  document.addEventListener(
+    'paste',
+    (e) => {
+      if (e.defaultPrevented) return;
+      tryPasteImageToSelectedCard(e);
+    },
+    true
+  );
+
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       if (!$('#blankOverlay')?.hidden) {
@@ -3596,9 +4595,12 @@ function init() {
     if (presentOverlay && !presentOverlay.hidden) {
       if (e.key === 'ArrowRight' || e.key === ' ') {
         e.preventDefault();
-        presentNext();
+        presentAdvance();
       }
-      if (e.key === 'ArrowLeft') presentPrev();
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        presentRetreat();
+      }
     }
     if (e.key === 'p' && !e.target.matches('input, [contenteditable], select')) {
       const blocks = getPresentBlocks();
@@ -3612,11 +4614,7 @@ function init() {
       undoLayout();
     }
     if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId && !e.target.matches('input, [contenteditable]')) {
-      removeFromPresentOrder(selectedId);
-      state.blocks = state.blocks.filter((b) => b.id !== selectedId);
-      selectedId = null;
-      render();
-      showToast('Block deleted');
+      deleteBlock(selectedId);
     }
   });
 
