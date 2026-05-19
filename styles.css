@@ -1286,6 +1286,76 @@ body {
   line-height: 1.45;
 }
 
+.block-link-card,
+.present-link-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-height: 120px;
+  padding: 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: linear-gradient(145deg, #f8fafc 0%, #edf2f7 100%);
+}
+
+.link-card-icon {
+  flex-shrink: 0;
+  font-size: 1.75rem;
+  line-height: 1;
+}
+
+.link-card-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.link-card-host {
+  margin: 0 0 4px;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.link-card-note {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.link-card-open-btn {
+  flex-shrink: 0;
+  padding: 10px 14px !important;
+  border-radius: 8px !important;
+  border: none !important;
+  background: var(--accent) !important;
+  color: #1a1408 !important;
+  font-weight: 700 !important;
+}
+
+.link-card-open-btn:hover {
+  background: var(--accent-hover) !important;
+  color: #1a1408 !important;
+}
+
+.present-link-card {
+  min-height: 200px;
+  padding: 24px;
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.present-link-card .link-card-host {
+  font-size: 1.35rem;
+}
+
+.present-link-card .link-card-open-btn {
+  font-size: 1rem !important;
+  padding: 12px 20px !important;
+}
+
 .block-link-preview input {
   width: 100%;
   padding: 10px 12px;

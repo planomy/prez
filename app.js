@@ -1079,11 +1079,15 @@ function canPreserveBlockBody(el, block) {
   if (titleInput && titleInput.value !== (block.title || '')) return false;
 
   if (block.type === 'link' && block.url) {
-    const embedUrl = getLinkEmbedUrl(block.url);
-    const iframe = $('.block-link-embed iframe', el);
     const urlInput = $('[data-field="url"]', el);
     if (urlInput && urlInput.value.trim() !== (block.url || '').trim()) return false;
-    return !!(embedUrl && iframeSrcMatches(iframe, embedUrl));
+    const embedUrl = getLinkEmbedUrl(block.url);
+    if (embedUrl) {
+      const iframe = $('.block-link-embed iframe', el);
+      return iframeSrcMatches(iframe, embedUrl);
+    }
+    const open = $('.block-link-card .block-link-open', el);
+    return open?.href === getLinkOpenUrl(block.url);
   }
 
   if (block.type === 'document' && block.docData && isPdfDocument(block)) {
@@ -1252,7 +1256,7 @@ function getBodyHTML(block) {
       return `<input class="block-title-input" type="text" value="${title}" placeholder="Link title" data-field="title" />
         <div class="block-link-preview">
           <input type="url" value="${escapeAttr(block.url || '')}" placeholder="https://example.com" data-field="url" />
-          ${embedUrl ? getLinkEmbedHTML(embedUrl, openUrl) : block.url?.trim() ? '<p class="block-link-hint">Check the URL — preview needs https://</p>' : ''}
+          ${embedUrl ? getLinkEmbedHTML(embedUrl, openUrl) : openUrl ? getLinkCardHTML(openUrl) : ''}
         </div>`;
     }
     case 'list':
@@ -1477,10 +1481,33 @@ function getLinkEmbedUrl(raw) {
       }
     }
 
-    return url;
+    // Most sites (ChatGPT, Google, etc.) block iframes — only embed known platforms above.
+    return null;
   } catch {
     return null;
   }
+}
+
+function getLinkHostname(openUrl) {
+  try {
+    return new URL(openUrl).hostname.replace(/^www\./, '');
+  } catch {
+    return openUrl;
+  }
+}
+
+function getLinkCardHTML(openUrl, { present = false } = {}) {
+  const host = getLinkHostname(openUrl);
+  const cardClass = present ? 'present-link-card' : 'block-link-card';
+  const openClass = present ? 'present-link-open' : 'block-link-open';
+  return `<div class="${cardClass}">
+    <span class="link-card-icon" aria-hidden="true">🔗</span>
+    <div class="link-card-meta">
+      <p class="link-card-host">${escapeHtml(host)}</p>
+      <p class="link-card-note">Can’t embed this site — open in a new tab</p>
+    </div>
+    <a class="${openClass} link-card-open-btn" href="${escapeAttr(openUrl)}" target="_blank" rel="noopener noreferrer">Open ↗</a>
+  </div>`;
 }
 
 function getLinkOpenUrl(raw) {
@@ -1526,26 +1553,36 @@ function syncLinkPreview(el, block) {
   $('.block-link-hint', wrap)?.remove();
 
   let embed = $('.block-link-embed', wrap);
-  if (!embedUrl) {
+  let card = $('.block-link-card', wrap);
+
+  if (!openUrl) {
     embed?.remove();
-    if ((block.url || '').trim() && !embed) {
-      const hint = document.createElement('p');
-      hint.className = 'block-link-hint';
-      hint.textContent = 'This site may block embeds — use Open in new tab after adding a URL';
-      wrap.appendChild(hint);
+    card?.remove();
+    return;
+  }
+
+  if (embedUrl) {
+    card?.remove();
+    if (!embed) {
+      wrap.insertAdjacentHTML('beforeend', getLinkEmbedHTML(embedUrl, openUrl));
+      return;
     }
+    const iframe = $('iframe', embed);
+    if (iframe && iframe.src !== embedUrl) iframe.src = embedUrl;
+    const open = $('.block-link-open', embed);
+    if (open) open.href = openUrl;
     return;
   }
 
-  if (!embed) {
-    wrap.insertAdjacentHTML('beforeend', getLinkEmbedHTML(embedUrl, openUrl));
+  embed?.remove();
+  if (!card) {
+    wrap.insertAdjacentHTML('beforeend', getLinkCardHTML(openUrl));
     return;
   }
-
-  const iframe = $('iframe', embed);
-  if (iframe && iframe.src !== embedUrl) iframe.src = embedUrl;
-  const open = $('.block-link-open', embed);
+  const open = $('.block-link-open', card);
   if (open) open.href = openUrl;
+  const hostEl = $('.link-card-host', card);
+  if (hostEl) hostEl.textContent = getLinkHostname(openUrl);
 }
 
 function bindBodyInputs(el, block) {
@@ -2383,13 +2420,7 @@ function getPresentHTML(block, { showTitle = true } = {}) {
       if (embedUrl) {
         return `${title}${getLinkEmbedHTML(embedUrl, openUrl, { present: true })}`;
       }
-      return (
-        title +
-        `<p class="present-link-fallback">This site blocks embedded previews.</p>` +
-        (openUrl
-          ? `<p><a class="present-doc-download" href="${escapeAttr(openUrl)}" target="_blank" rel="noopener noreferrer">Open in new tab ↗</a></p>`
-          : '')
-      );
+      return `${title}${getLinkCardHTML(openUrl, { present: true })}`;
     }
     case 'table':
       return title + `<div class="present-body present-body--text">${block.tableHtml || defaultTableHtml()}</div>`;
