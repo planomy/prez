@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Permissions-Policy" content="file-system-access=(self)" />
+  <title>Prez — Classroom Board</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app" class="app">
+    <header class="toolbar" role="banner">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">◆</span>
+        <input
+          type="text"
+          id="boardTitle"
+          class="board-title"
+          value="Untitled board"
+          spellcheck="false"
+          aria-label="Board name"
+          placeholder="Untitled board"
+        />
+      </div>
+      <div id="timerFloat" class="toolbar-timer" hidden aria-live="polite" aria-label="Lesson timer">
+        <span class="toolbar-timer-display" id="timerFloatDisplay">5:00</span>
+        <button type="button" id="timerFloatPause" class="btn btn-ghost btn-sm">Pause</button>
+        <button type="button" id="timerFloatReset" class="btn btn-ghost btn-sm">Reset</button>
+        <button type="button" id="timerFloatClose" class="toolbar-timer-close" aria-label="Hide timer">×</button>
+      </div>
+      <div class="toolbar-actions">
+        <button type="button" id="btnPresent" class="btn btn-ghost btn-present" title="Present mode (P)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          Present
+        </button>
+        <div class="toolbar-format-wrap">
+          <button type="button" id="btnFormat" class="btn btn-ghost btn-format" title="Board layout format" aria-haspopup="true" aria-expanded="false">
+            Format
+            <span class="btn-format-caret" aria-hidden="true">▾</span>
+          </button>
+          <div id="formatMenu" class="format-menu" role="menu" hidden></div>
+          <select id="layoutSelect" class="visually-hidden" aria-hidden="true" tabindex="-1">
+            <option value="free">Free placement</option>
+          </select>
+        </div>
+        <div class="toolbar-menu-wrap toolbar-tools-wrap">
+          <button type="button" id="btnTools" class="btn btn-ghost btn-menu" aria-haspopup="true" aria-expanded="false">
+            Tools
+            <span class="btn-format-caret" aria-hidden="true">▾</span>
+          </button>
+          <div id="toolsMenu" class="toolbar-dropdown" role="menu" hidden>
+            <button type="button" class="toolbar-dropdown-item" data-tool="outline">Lesson outline <kbd>O</kbd></button>
+            <button type="button" class="toolbar-dropdown-item" data-tool="blank">Blank screen <kbd>B</kbd></button>
+            <button type="button" class="toolbar-dropdown-item" data-tool="timer">Timer <kbd>T</kbd></button>
+            <div class="toolbar-dropdown-divider"></div>
+            <button type="button" class="toolbar-dropdown-item" data-tool="fit">Fit screen</button>
+            <button type="button" class="toolbar-dropdown-item" id="menuUndo" data-tool="undo" disabled>Undo <kbd>⌘Z</kbd></button>
+            <div id="toolsAlignSection" class="tools-align-section" hidden>
+              <p class="toolbar-dropdown-label">Align selected card</p>
+              <div class="tools-align-grid">
+                <button type="button" class="btn btn-ghost btn-icon" data-align="left" title="Align left">⬅</button>
+                <button type="button" class="btn btn-ghost btn-icon" data-align="center-h" title="Align center">⬌</button>
+                <button type="button" class="btn btn-ghost btn-icon" data-align="right" title="Align right">➡</button>
+                <button type="button" class="btn btn-ghost btn-icon" data-align="top" title="Align top">⬆</button>
+                <button type="button" class="btn btn-ghost btn-icon" data-align="center-v" title="Align middle">⬍</button>
+                <button type="button" class="btn btn-ghost btn-icon" data-align="bottom" title="Align bottom">⬇</button>
+              </div>
+            </div>
+          </div>
+          <div id="timerPopover" class="timer-popover" hidden>
+            <p class="timer-popover-label">Lesson timer</p>
+            <div class="timer-presets">
+              <button type="button" data-seconds="60">1 min</button>
+              <button type="button" data-seconds="120">2 min</button>
+              <button type="button" data-seconds="300">5 min</button>
+              <button type="button" data-seconds="600">10 min</button>
+            </div>
+            <label class="timer-custom">
+              <span>Custom (minutes)</span>
+              <input type="number" id="timerCustomMin" min="1" max="120" value="5" />
+            </label>
+            <p class="timer-display" id="timerPopoverDisplay">5:00</p>
+            <div class="timer-controls">
+              <button type="button" id="timerStart" class="btn btn-primary btn-sm">Start</button>
+              <button type="button" id="timerPause" class="btn btn-ghost btn-sm" hidden>Pause</button>
+              <button type="button" id="timerReset" class="btn btn-ghost btn-sm">Reset</button>
+            </div>
+          </div>
+        </div>
+        <button type="button" id="btnBg" class="btn btn-ghost" title="Background">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a14 14 0 0 1 0 20M12 2a14 14 0 0 0 0 20"/></svg>
+          Background
+        </button>
+        <div class="toolbar-menu-wrap toolbar-file-wrap">
+          <button type="button" id="btnFile" class="btn btn-ghost btn-menu" aria-haspopup="true" aria-expanded="false">
+            File
+            <span class="btn-format-caret" aria-hidden="true">▾</span>
+          </button>
+          <div id="fileMenu" class="toolbar-dropdown" role="menu" hidden>
+            <button type="button" class="toolbar-dropdown-item" data-file="templates">Templates…</button>
+            <div class="toolbar-dropdown-divider"></div>
+            <button type="button" class="toolbar-dropdown-item" data-file="new">New board</button>
+            <button type="button" class="toolbar-dropdown-item" data-file="save">Save as…</button>
+            <button type="button" class="toolbar-dropdown-item" data-file="open">Open…</button>
+          </div>
+        </div>
+        <button type="button" id="btnNew" class="visually-hidden" tabindex="-1" aria-hidden="true">New</button>
+        <button type="button" id="btnSave" class="visually-hidden" tabindex="-1" aria-hidden="true">Save</button>
+        <button type="button" id="btnLoad" class="visually-hidden" tabindex="-1" aria-hidden="true">Open</button>
+        <button type="button" id="btnUndoLayout" class="visually-hidden" tabindex="-1" aria-hidden="true" disabled>Undo</button>
+        <button type="button" id="btnAutoArrange" class="visually-hidden" tabindex="-1" aria-hidden="true">Fit</button>
+        <button type="button" id="btnOutline" class="visually-hidden" tabindex="-1" aria-hidden="true">Outline</button>
+        <button type="button" id="btnBlank" class="visually-hidden" tabindex="-1" aria-hidden="true">Blank</button>
+        <button type="button" id="btnTimer" class="visually-hidden" tabindex="-1" aria-hidden="true">Timer</button>
+      </div>
+    </header>
+
+    <main class="canvas-wrap" id="canvasWrap">
+      <div class="canvas" id="canvas" aria-label="Board canvas">
+        <div class="canvas-inner" id="canvasInner"></div>
+      </div>
+    </main>
+
+    <button type="button" id="fabAdd" class="fab" aria-label="Add block">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      <span>Post</span>
+    </button>
+
+    <p class="hint" id="hint">File → Templates · Present (P) · Post · Shift+drag = no snap</p>
+  </div>
+
+  <dialog id="bgDialog" class="dialog">
+    <form method="dialog" class="dialog-panel">
+      <header class="dialog-header">
+        <h2>Background</h2>
+        <button type="button" class="btn-icon dialog-close" data-close aria-label="Close">×</button>
+      </header>
+      <div class="bg-grid" id="bgGrid"></div>
+      <div class="bg-custom">
+        <div class="bg-custom-preview" id="bgCustomPreview" hidden aria-hidden="true"></div>
+        <label class="btn bg-upload-btn">
+          <input type="file" accept="image/*" id="bgCustomFile" hidden />
+          Upload image
+        </label>
+        <p class="bg-custom-hint">Or paste an image while this dialog is open (⌘V / Ctrl+V)</p>
+        <label class="field bg-url-field">
+          <span>Image URL</span>
+          <input type="url" id="bgCustomUrl" placeholder="https://..." />
+        </label>
+      </div>
+      <footer class="dialog-footer">
+        <button type="submit" class="btn btn-primary">Apply</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="addDialog" class="dialog">
+    <form method="dialog" class="dialog-panel dialog-panel-sm">
+      <header class="dialog-header">
+        <h2>New post</h2>
+        <button type="button" class="btn-icon dialog-close" data-close aria-label="Close">×</button>
+      </header>
+      <div class="type-grid">
+        <button type="button" class="type-card" data-open-hot="1">
+          <span class="type-icon hot">◆</span>
+          <span class="type-label">HOT activity</span>
+        </button>
+        <button type="button" class="type-card" data-type="bloom">
+          <span class="type-icon bloom">△</span>
+          <span class="type-label">Bloom's taxonomy</span>
+        </button>
+        <button type="button" class="type-card" data-type="brainbreak">
+          <span class="type-icon brainbreak">⚡</span>
+          <span class="type-label">Brain break</span>
+        </button>
+        <button type="button" class="type-card" data-type="document">
+          <span class="type-icon document">📄</span>
+          <span class="type-label">Document</span>
+        </button>
+        <button type="button" class="type-card" data-type="heading">
+          <span class="type-icon heading">H</span>
+          <span class="type-label">Heading</span>
+        </button>
+        <button type="button" class="type-card" data-type="image">
+          <span class="type-icon image">▣</span>
+          <span class="type-label">Image</span>
+        </button>
+        <button type="button" class="type-card" data-type="link">
+          <span class="type-icon link">🔗</span>
+          <span class="type-label">Link</span>
+        </button>
+        <button type="button" class="type-card" data-type="list">
+          <span class="type-icon list">≡</span>
+          <span class="type-label">List</span>
+        </button>
+        <button type="button" class="type-card" data-type="note">
+          <span class="type-icon note">Aa</span>
+          <span class="type-label">Note</span>
+        </button>
+        <button type="button" class="type-card" data-type="poll">
+          <span class="type-icon poll">◉</span>
+          <span class="type-label">Poll</span>
+        </button>
+        <button type="button" class="type-card" data-type="sticky">
+          <span class="type-icon sticky">▪</span>
+          <span class="type-label">Quick sticky</span>
+        </button>
+        <button type="button" class="type-card" data-type="quiz">
+          <span class="type-icon quiz">?</span>
+          <span class="type-label">Quiz</span>
+        </button>
+        <button type="button" class="type-card" data-type="table">
+          <span class="type-icon table">⊞</span>
+          <span class="type-label">Table</span>
+        </button>
+        <button type="button" class="type-card" data-type="timer">
+          <span class="type-icon timer">⏱</span>
+          <span class="type-label">Timer</span>
+        </button>
+        <button type="button" class="type-card" data-type="whiteboard">
+          <span class="type-icon whiteboard">▢</span>
+          <span class="type-label">Whiteboard</span>
+        </button>
+        <button type="button" class="type-card" data-type="worldmap">
+          <span class="type-icon worldmap">🌍</span>
+          <span class="type-label">World map</span>
+        </button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="hotDialog" class="dialog">
+    <div class="dialog-panel dialog-panel-hot">
+      <header class="dialog-header">
+        <h2 id="hotDialogTitle">HOT activity</h2>
+        <button type="button" class="btn-icon dialog-close" data-close aria-label="Close">×</button>
+      </header>
+      <p class="hot-dialog-intro" id="hotDialogIntro">
+        Choose a routine — one instruction card is added for students (same colour as your selected card).
+      </p>
+      <div class="hot-dialog-step">
+        <div id="hotRoutineList" class="hot-routine-list"></div>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="templatesDialog" class="dialog">
+    <div class="dialog-panel dialog-panel-templates">
+      <header class="dialog-header">
+        <h2>Templates</h2>
+        <button type="button" class="btn-icon dialog-close" data-close aria-label="Close">×</button>
+      </header>
+      <p class="templates-intro">Start from a ready-made board. Replace placeholder text, add links or images, then Present in lesson order.</p>
+      <div id="templatesFeatured" class="templates-featured" hidden></div>
+      <div id="templatesSections" class="templates-sections"></div>
+    </div>
+  </dialog>
+
+  <aside id="outlinePanel" class="outline-panel" hidden aria-label="Lesson outline">
+    <header class="outline-header">
+      <h2>Lesson outline</h2>
+      <button type="button" id="outlineClose" class="btn-icon" aria-label="Close outline">×</button>
+    </header>
+    <p class="outline-hint">Drag to reorder · × to delete · Double-click to present</p>
+    <ol id="outlineList" class="outline-list"></ol>
+  </aside>
+
+  <div id="blankOverlay" class="blank-overlay" hidden>
+    <div class="blank-chrome">
+      <div class="blank-tabs" role="tablist">
+        <button type="button" class="blank-tab is-active" data-blank-tab="type" role="tab">Type</button>
+        <button type="button" class="blank-tab" data-blank-tab="draw" role="tab">Draw</button>
+      </div>
+      <button type="button" id="blankClose" class="btn btn-ghost">Done</button>
+    </div>
+    <div class="blank-pane blank-pane-type" data-blank-pane="type">
+      <div class="blank-editor" id="blankEditor" contenteditable="true" spellcheck="true" data-placeholder="Type for the class…"></div>
+    </div>
+    <div class="blank-pane blank-pane-draw" data-blank-pane="draw" hidden>
+      <canvas id="blankCanvas" class="blank-canvas"></canvas>
+      <div class="blank-draw-tools">
+        <button type="button" id="blankClearDraw" class="btn btn-ghost btn-sm">Clear drawing</button>
+        <span class="blank-draw-hint">Use stylus or finger on iPad</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="presentOverlay" class="present-overlay" hidden>
+    <button type="button" id="presentClose" class="present-close" aria-label="Exit present mode">×</button>
+    <button type="button" id="presentPrev" class="present-nav present-prev" aria-label="Previous">‹</button>
+    <button type="button" id="presentNext" class="present-nav present-next" aria-label="Next">›</button>
+    <div class="present-stage" id="presentStage"></div>
+    <div class="present-counter" id="presentCounter"></div>
+  </div>
+
+  <input type="file" id="fileInput" accept=".json,application/json,.prez.json" hidden />
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="template-bundled-images.js"></script>
+  <script src="templates.js"></script>
+  <script src="hot-routines.js"></script>
+  <script src="app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mammoth@1.9.0/mammoth.browser.min.js" async></script>
+</body>
+</html>
