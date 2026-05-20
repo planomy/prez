@@ -3,7 +3,7 @@
  */
 (function () {
   const HOT_ICON_DIR = 'assets/hot/';
-  const HOT_ICON_V = '8';
+  const HOT_ICON_V = '9';
 
   function hotIcon(id) {
     return `${HOT_ICON_DIR}${id}.png?v=${HOT_ICON_V}`;

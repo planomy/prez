@@ -27,6 +27,13 @@ MAPPING = [
     ("image-dd0bece8-21ee-42c2-a1c1-ee235aae405e.png", "plus-minus-interesting"),
     ("image-e01dd326-60d7-4fe8-a942-45c56c3efd34.png", "tournament-prioritiser"),
     ("image-b251a9a3-7d90-4b5c-ba2e-4c20ef0c68df.png", "decision-making-matrix"),
+    # Tier-1 HOT + Socratic stems
+    ("image-8d9de43a-debd-41da-8040-57f3783fb1ea.png", "rose-thorn-bud"),
+    ("image-661d4ddc-b26f-4436-8b30-91cc1954e178.png", "socratic-stems"),
+    ("image-90e96431-824c-4f16-a725-838ef9343586.png", "frayer-model"),
+    ("image-47a0d4f4-187f-4354-b937-dcb50c3334da.png", "kwl"),
+    ("image-afddd3ea-7112-4c66-bd34-bf682f4156bd.png", "soapstone"),
+    ("image-a63dd171-7bcf-4db5-9b22-bbbc691af448.png", "qft"),
 ]
 
 
