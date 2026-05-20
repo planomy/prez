@@ -346,6 +346,20 @@ let timerTickInterval = null;
 let blankDrawCtx = null;
 let blankDrawing = false;
 let blankBlockId = null;
+let blankDrawTool = 'pen';
+let blankDrawColor = '#f4f6f8';
+let blankDrawSize = 'm';
+const blankDrawUndoStack = [];
+let blankStrokeBefore = null;
+let blankStrokeMoved = false;
+let blankDrawUndoBusy = false;
+/** Block id (or null for tools blank) that the canvas pixel buffer belongs to. */
+let blankCanvasOwnerId = null;
+/** True after the user changes the drawing (skip save on close if still false). */
+let blankDrawDirty = false;
+
+const BLANK_DRAW_WIDTHS = { s: 3, m: 6, l: 12 };
+const BLANK_DRAW_UNDO_MAX = 24;
 let outlineDragId = null;
 
 const PRESENT_EXPAND_ICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l16-16M20 4h-6M20 4v6"/></svg>`;
@@ -451,9 +465,10 @@ function normalizeBoardState(data) {
     if (!order.includes(b.id)) order.push(b.id);
     normalizePollData(b);
     normalizeQuizData(b);
-    normalizeBloomData(b);
     normalizeBrainBreakData(b);
     normalizeWorldMapData(b);
+    if (b.type === 'whiteboard' && !b.blankDraw) b.blankDraw = null;
+    else if (b.type === 'whiteboard' && b.blankDraw === '') b.blankDraw = null;
   });
   merged.presentOrder = order;
   merged.blankContent = merged.blankContent || '';
@@ -1741,19 +1756,44 @@ function setBlankContent(html) {
 }
 
 function getBlankDraw() {
-  const b = getBlankBlock();
-  return b ? b.blankDraw || null : state.blankDraw || null;
+  if (blankBlockId) {
+    const b = getBlock(blankBlockId);
+    return b?.blankDraw || null;
+  }
+  return state.blankDraw || null;
 }
 
 function setBlankDraw(dataUrl) {
-  const b = getBlankBlock();
-  if (b) {
+  if (blankBlockId) {
+    const b = getBlock(blankBlockId);
+    if (!b) return;
     b.blankDraw = dataUrl;
-    updateWhiteboardPreview(b);
+    if (b.type === 'whiteboard') updateWhiteboardPreview(b);
   } else {
     state.blankDraw = dataUrl;
   }
   persist();
+}
+
+function resetBlankCanvasBuffer() {
+  const canvas = $('#blankCanvas');
+  if (canvas) {
+    canvas.width = 0;
+    canvas.height = 0;
+  }
+}
+
+function isBlankDrawCanvasEmpty(canvas) {
+  if (!canvas?.width || !canvas.height || !blankDrawCtx) return true;
+  const { width, height } = canvas;
+  const step = Math.max(1, Math.floor(Math.sqrt((width * height) / 4096)));
+  const data = blankDrawCtx.getImageData(0, 0, width, height).data;
+  for (let y = 0; y < height; y += step) {
+    for (let x = 0; x < width; x += step) {
+      if (data[(y * width + x) * 4 + 3] > 8) return false;
+    }
+  }
+  return true;
 }
 
 function getBodyHTML(block) {
@@ -3938,9 +3978,14 @@ function getHotCardPosition(anchorBlock, w, h) {
   const height = h || 280;
 
   if (anchorBlock) {
+    const { usableW, pad } = getViewportLayoutMetrics();
+    const xRight = anchorBlock.x + anchorBlock.w + gap;
+    if (xRight + width <= pad + usableW) {
+      return { x: xRight, y: anchorBlock.y, w: width, h: height };
+    }
     return {
-      x: anchorBlock.x + anchorBlock.w + gap,
-      y: anchorBlock.y,
+      x: pad,
+      y: anchorBlock.y + anchorBlock.h + gap,
       w: width,
       h: height,
     };
@@ -4005,31 +4050,6 @@ function createPickerRemoveBtn(onRemove) {
   return btn;
 }
 
-function getPostTypeLabel(type) {
-  return BLOCK_TYPE_OPTIONS.find((o) => o.type === type)?.label || type;
-}
-
-function renderPickerChips(containerSel, items, onRemove) {
-  const el = $(containerSel);
-  if (!el) return;
-  el.innerHTML = '';
-  if (!items.length) {
-    el.hidden = true;
-    return;
-  }
-  el.hidden = false;
-  items.forEach(({ id, label }) => {
-    const chip = document.createElement('span');
-    chip.className = 'picker-chip';
-    const labelEl = document.createElement('span');
-    labelEl.className = 'picker-chip-label';
-    labelEl.textContent = label;
-    chip.appendChild(labelEl);
-    chip.appendChild(createPickerRemoveBtn(() => onRemove(id)));
-    el.appendChild(chip);
-  });
-}
-
 function togglePostPicker(type) {
   if (postPickerSelected.has(type)) postPickerSelected.delete(type);
   else postPickerSelected.add(type);
@@ -4053,11 +4073,6 @@ function syncPostPickerUI() {
   });
   const done = $('#postPickerDone');
   if (done) done.disabled = postPickerSelected.size === 0;
-  renderPickerChips(
-    '#postPickerChips',
-    [...postPickerSelected].map((id) => ({ id, label: getPostTypeLabel(id) })),
-    removePostPicker
-  );
 }
 
 function commitPostPicker() {
@@ -4100,11 +4115,6 @@ function syncHotPickerUI() {
   });
   const done = $('#hotPickerDone');
   if (done) done.disabled = hotPickerSelected.size === 0;
-  const items = [...hotPickerSelected].map((id) => ({
-    id,
-    label: findHotRoutine(id)?.name || id,
-  }));
-  renderPickerChips('#hotPickerChips', items, removeHotPicker);
 }
 
 function commitHotPicker() {
@@ -4264,12 +4274,11 @@ function initHotDialog() {
 }
 
 function addBlock(type, opts = {}) {
-  const offsets = state.blocks.length * 24;
   const block = {
     id: uid(),
     type,
-    x: 120 + offsets,
-    y: 120 + offsets,
+    x: LAYOUT_PAD,
+    y: LAYOUT_PAD,
     w:
       type === 'sticky'
         ? 220
@@ -4317,7 +4326,15 @@ function addBlock(type, opts = {}) {
       block.w = place.w;
       block.h = place.h;
       block.accent = MIND_MAP_BRANCH.accent;
+    } else {
+      const pos = getHotCardPosition(null, block.w, block.h);
+      block.x = pos.x;
+      block.y = pos.y;
     }
+  } else {
+    const pos = getHotCardPosition(null, block.w, block.h);
+    block.x = pos.x;
+    block.y = pos.y;
   }
 
   state.blocks.push(block);
@@ -4913,6 +4930,7 @@ function removeFromPresentOrder(id) {
 
 function deleteBlock(id) {
   if (!getBlock(id)) return;
+  if (blankBlockId === id) closeBlank();
   if (state.mindMapCenterId === id) state.mindMapCenterId = null;
   state.blocks = state.blocks.filter((b) => b.id !== id);
   removeFromPresentOrder(id);
@@ -5150,13 +5168,95 @@ function startBlockTimer(block) {
 
 // --- Blank screen ---
 
+const BLANK_TABLE_ROWS_MAX = 12;
+const BLANK_TABLE_COLS_MAX = 8;
+
+const BLANK_TABLE_DELETE_BTN_HTML =
+  '<button type="button" class="blank-table-delete btn btn-ghost btn-sm">Delete table</button>';
+
+function ensureBlankTableControls(editor) {
+  if (!editor) return;
+  editor.querySelectorAll('.blank-table-wrap').forEach((wrap) => {
+    if (wrap.querySelector('.blank-table-delete')) return;
+    wrap.insertAdjacentHTML('afterbegin', BLANK_TABLE_DELETE_BTN_HTML);
+  });
+}
+
+function removeBlankTableWrap(wrap) {
+  if (!wrap) return;
+  wrap.remove();
+  const editor = $('#blankEditor');
+  if (editor) setBlankContent(editor.innerHTML);
+  showToast('Table removed');
+}
+
+function buildBlankTableHtml(rows, cols) {
+  const r = Math.min(BLANK_TABLE_ROWS_MAX, Math.max(1, Math.round(rows) || 1));
+  const c = Math.min(BLANK_TABLE_COLS_MAX, Math.max(1, Math.round(cols) || 1));
+  const colPct = (100 / c).toFixed(3);
+  let html = `<div class="blank-table-wrap" contenteditable="false">${BLANK_TABLE_DELETE_BTN_HTML}<table class="blank-table"><colgroup>`;
+  for (let x = 0; x < c; x++) {
+    html += `<col style="width:${colPct}%" />`;
+  }
+  html += '</colgroup><tbody>';
+  for (let y = 0; y < r; y++) {
+    html += '<tr>';
+    for (let x = 0; x < c; x++) {
+      const cell = y === 0 ? 'th' : 'td';
+      html += `<${cell} contenteditable="true"></${cell}>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table></div><p><br></p>';
+  return html;
+}
+
+function insertHtmlIntoBlankEditor(html) {
+  const editor = $('#blankEditor');
+  if (!editor) return;
+  editor.focus();
+  const sel = window.getSelection();
+  let inserted = false;
+  if (sel && sel.rangeCount > 0) {
+    const range = sel.getRangeAt(0);
+    if (editor.contains(range.commonAncestorContainer)) {
+      range.deleteContents();
+      const frag = range.createContextualFragment(html);
+      range.insertNode(frag);
+      range.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      inserted = true;
+    }
+  }
+  if (!inserted) editor.insertAdjacentHTML('beforeend', html);
+  setBlankContent(editor.innerHTML);
+  const wrap = editor.querySelector('.blank-table-wrap:last-of-type');
+  const firstCell = wrap?.querySelector('th[contenteditable], td[contenteditable]');
+  if (firstCell) {
+    firstCell.focus();
+    const r = document.createRange();
+    r.selectNodeContents(firstCell);
+    r.collapse(true);
+    sel?.removeAllRanges();
+    sel?.addRange(r);
+  }
+}
+
+function insertBlankTableFromControls() {
+  const rows = parseInt($('#blankTableRows')?.value, 10);
+  const cols = parseInt($('#blankTableCols')?.value, 10);
+  insertHtmlIntoBlankEditor(buildBlankTableHtml(rows, cols));
+  showToast('Table inserted');
+}
+
 function openBlank(blockId) {
   closeFormatMenu();
   closeOutline();
   const overlay = $('#blankOverlay');
   if (!overlay) return;
 
-  if (blockId) {
+  if (blockId && getBlock(blockId)) {
     blankBlockId = blockId;
   } else if (selectedId) {
     const sel = getBlock(selectedId);
@@ -5164,17 +5264,29 @@ function openBlank(blockId) {
   } else {
     blankBlockId = null;
   }
+  blankCanvasOwnerId = blankBlockId;
+  blankDrawDirty = false;
 
   overlay.hidden = false;
   overlay.removeAttribute('hidden');
+  document.body.classList.add('blank-open');
   document.body.style.overflow = 'hidden';
+  blankDrawUndoStack.length = 0;
+  blankStrokeBefore = null;
+  blankStrokeMoved = false;
+  syncBlankDrawUndoBtn();
   const editor = $('#blankEditor');
   const content = getBlankContent();
   if (editor && editor.innerHTML !== content) editor.innerHTML = content;
+  ensureBlankTableControls(editor);
+  const block = blankBlockId ? getBlock(blankBlockId) : null;
+  if (block?.type === 'whiteboard') setBlankTab('draw');
+  else setBlankTab('type');
+  resetBlankCanvasBuffer();
   initBlankCanvas();
   requestAnimationFrame(() => {
     resizeBlankCanvas();
-    editor?.focus();
+    if (block?.type !== 'whiteboard') editor?.focus();
   });
 }
 
@@ -5187,11 +5299,18 @@ function closeBlank() {
   const block = getBlankBlock();
   overlay.hidden = true;
   overlay.setAttribute('hidden', '');
+  document.body.classList.remove('blank-open');
+  blankDrawUndoStack.length = 0;
+  blankStrokeBefore = null;
+  blankStrokeMoved = false;
+  syncBlankDrawUndoBtn();
   blankDrawing = false;
   blankBlockId = null;
+  blankCanvasOwnerId = null;
   blankDrawCtx = null;
   const canvas = $('#blankCanvas');
   if (canvas) delete canvas.dataset.bound;
+  resetBlankCanvasBuffer();
   document.body.style.overflow = presentOverlay?.hidden !== false ? '' : 'hidden';
   if (block) {
     const el = $(`[data-block-id="${block.id}"]`, canvasInner);
@@ -5206,11 +5325,97 @@ function setBlankTab(tab) {
     p.hidden = p.dataset.blankPane !== tab;
   });
   if (tab === 'draw') {
+    syncBlankDrawToolbar();
     requestAnimationFrame(() => {
       initBlankCanvas();
       resizeBlankCanvas();
     });
   }
+}
+
+function getBlankDrawLineWidth() {
+  const base = BLANK_DRAW_WIDTHS[blankDrawSize] || BLANK_DRAW_WIDTHS.m;
+  return blankDrawTool === 'eraser' ? base * 2.5 : base;
+}
+
+function applyBlankDrawContext(ctx) {
+  if (!ctx) return;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = getBlankDrawLineWidth();
+  if (blankDrawTool === 'eraser') {
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.strokeStyle = 'rgba(0,0,0,1)';
+  } else {
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = blankDrawColor;
+  }
+}
+
+function syncBlankDrawUndoBtn() {
+  const btn = $('#blankDrawUndo');
+  if (btn) btn.disabled = blankDrawUndoStack.length === 0;
+}
+
+function commitBlankDrawStrokeUndo() {
+  if (!blankStrokeMoved || !blankStrokeBefore) return;
+  blankDrawUndoStack.push(blankStrokeBefore);
+  if (blankDrawUndoStack.length > BLANK_DRAW_UNDO_MAX) blankDrawUndoStack.shift();
+  syncBlankDrawUndoBtn();
+  blankStrokeBefore = null;
+  blankStrokeMoved = false;
+}
+
+function restoreBlankDrawSnapshot(dataUrl, onDone) {
+  const canvas = $('#blankCanvas');
+  if (!canvas || !blankDrawCtx || !dataUrl) {
+    onDone?.();
+    return;
+  }
+  const img = new Image();
+  img.onload = () => {
+    blankDrawCtx.globalCompositeOperation = 'source-over';
+    blankDrawCtx.clearRect(0, 0, canvas.width, canvas.height);
+    blankDrawCtx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    applyBlankDrawContext(blankDrawCtx);
+    saveBlankDraw();
+    onDone?.();
+  };
+  img.onerror = () => onDone?.();
+  img.src = dataUrl;
+}
+
+function undoBlankDrawStroke() {
+  if (blankDrawUndoBusy || blankDrawUndoStack.length === 0) return;
+  const beforeLastStroke = blankDrawUndoStack.pop();
+  syncBlankDrawUndoBtn();
+  blankDrawUndoBusy = true;
+  restoreBlankDrawSnapshot(beforeLastStroke, () => {
+    blankDrawUndoBusy = false;
+    blankDrawDirty = true;
+    saveBlankDraw();
+  });
+}
+
+function syncBlankDrawToolbar() {
+  const canvas = $('#blankCanvas');
+  $$('[data-draw-tool]').forEach((btn) => {
+    const on = btn.dataset.drawTool === blankDrawTool;
+    btn.classList.toggle('is-active', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  $$('[data-draw-color]').forEach((btn) => {
+    const on = btn.dataset.drawColor === blankDrawColor;
+    btn.classList.toggle('is-active', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  $$('[data-draw-size]').forEach((btn) => {
+    const on = btn.dataset.drawSize === blankDrawSize;
+    btn.classList.toggle('is-active', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  $('#blankDrawColors')?.classList.toggle('is-disabled', blankDrawTool === 'eraser');
+  canvas?.classList.toggle('blank-canvas--eraser', blankDrawTool === 'eraser');
 }
 
 function blankCanvasPos(canvas, e) {
@@ -5234,10 +5439,17 @@ function initBlankCanvas() {
   const down = (e) => {
     if ($('[data-blank-pane="draw"]')?.hidden) return;
     e.preventDefault();
-    resizeBlankCanvas();
+    if (canvas.clientWidth >= 2 && canvas.clientHeight >= 2) resizeBlankCanvas();
     const p = blankCanvasPos(canvas, e);
     if (!p || !blankDrawCtx) return;
+    try {
+      blankStrokeBefore = canvas.toDataURL('image/png');
+    } catch (_) {
+      blankStrokeBefore = null;
+    }
+    blankStrokeMoved = false;
     blankDrawing = true;
+    applyBlankDrawContext(blankDrawCtx);
     blankDrawCtx.beginPath();
     blankDrawCtx.moveTo(p.x, p.y);
     canvas.setPointerCapture?.(e.pointerId);
@@ -5247,14 +5459,20 @@ function initBlankCanvas() {
     if (!blankDrawing || !blankDrawCtx) return;
     const p = blankCanvasPos(canvas, e);
     if (!p) return;
+    blankStrokeMoved = true;
+    applyBlankDrawContext(blankDrawCtx);
     blankDrawCtx.lineTo(p.x, p.y);
     blankDrawCtx.stroke();
+    blankDrawCtx.beginPath();
+    blankDrawCtx.moveTo(p.x, p.y);
   };
 
   const up = (e) => {
     if (!blankDrawing) return;
     blankDrawing = false;
     canvas.releasePointerCapture?.(e.pointerId);
+    commitBlankDrawStrokeUndo();
+    blankDrawDirty = true;
     saveBlankDraw();
   };
 
@@ -5272,43 +5490,86 @@ function resizeBlankCanvas() {
   const h = Math.max(canvas.clientHeight, 1);
   if (w < 2 || h < 2) return;
 
+  const ownerMatches = blankCanvasOwnerId === blankBlockId;
+  if (canvas.width === w && canvas.height === h) {
+    applyBlankDrawContext(blankDrawCtx);
+    return;
+  }
+
   let snapshot = null;
-  if (canvas.width > 0 && canvas.height > 0) {
+  if (ownerMatches && canvas.width > 0 && canvas.height > 0) {
     try {
       snapshot = canvas.toDataURL('image/png');
     } catch (_) {}
-  } else {
-    const saved = getBlankDraw();
-    if (saved) snapshot = saved;
   }
+  if (!snapshot) snapshot = getBlankDraw();
 
   canvas.width = w;
   canvas.height = h;
-  blankDrawCtx.lineCap = 'round';
-  blankDrawCtx.lineJoin = 'round';
-  blankDrawCtx.lineWidth = 4;
-  blankDrawCtx.strokeStyle = '#f4f6f8';
+  applyBlankDrawContext(blankDrawCtx);
 
   if (snapshot) {
     const img = new Image();
-    img.onload = () => blankDrawCtx.drawImage(img, 0, 0, w, h);
+    img.onload = () => {
+      blankDrawCtx.globalCompositeOperation = 'source-over';
+      blankDrawCtx.clearRect(0, 0, w, h);
+      blankDrawCtx.drawImage(img, 0, 0, w, h);
+      applyBlankDrawContext(blankDrawCtx);
+    };
     img.src = snapshot;
+  } else {
+    blankDrawCtx.globalCompositeOperation = 'source-over';
+    blankDrawCtx.clearRect(0, 0, w, h);
+    applyBlankDrawContext(blankDrawCtx);
   }
 }
 
 function saveBlankDraw() {
+  if (!blankDrawDirty) return;
   const canvas = $('#blankCanvas');
-  if (!canvas) return;
+  if (!canvas?.width || !canvas.height || !blankDrawCtx) return;
   try {
-    setBlankDraw(canvas.toDataURL('image/png'));
+    if (isBlankDrawCanvasEmpty(canvas)) setBlankDraw(null);
+    else setBlankDraw(canvas.toDataURL('image/png'));
   } catch (_) {}
 }
 
+function initBlankDrawToolbar() {
+  $('#blankDrawUndo')?.addEventListener('click', () => undoBlankDrawStroke());
+
+  $$('[data-draw-tool]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      blankDrawTool = btn.dataset.drawTool === 'eraser' ? 'eraser' : 'pen';
+      syncBlankDrawToolbar();
+    });
+  });
+  $$('[data-draw-color]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      blankDrawColor = btn.dataset.drawColor || '#f4f6f8';
+      blankDrawTool = 'pen';
+      syncBlankDrawToolbar();
+    });
+  });
+  $$('[data-draw-size]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      blankDrawSize = btn.dataset.drawSize || 'm';
+      syncBlankDrawToolbar();
+    });
+  });
+  syncBlankDrawToolbar();
+}
+
 function initBlankUI() {
+  initBlankDrawToolbar();
+
   $('#blankClearDraw')?.addEventListener('click', () => {
     const canvas = $('#blankCanvas');
     if (!blankDrawCtx || !canvas) return;
+    blankDrawCtx.globalCompositeOperation = 'source-over';
     blankDrawCtx.clearRect(0, 0, canvas.width, canvas.height);
+    blankDrawUndoStack.length = 0;
+    syncBlankDrawUndoBtn();
+    blankDrawDirty = true;
     setBlankDraw(null);
   });
 
@@ -5319,6 +5580,14 @@ function initBlankUI() {
   });
   $$('.blank-tab').forEach((tab) => {
     tab.addEventListener('click', () => setBlankTab(tab.dataset.blankTab));
+  });
+  $('#blankInsertTable')?.addEventListener('click', insertBlankTableFromControls);
+  $('#blankEditor')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.blank-table-delete');
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    removeBlankTableWrap(btn.closest('.blank-table-wrap'));
   });
   $('#blankEditor')?.addEventListener('input', () => {
     setBlankContent($('#blankEditor').innerHTML);
@@ -5695,6 +5964,10 @@ function newBoard() {
   closeBlank();
   closeOutline();
   resetTimer();
+  blankBlockId = null;
+  blankCanvasOwnerId = null;
+  blankDrawDirty = false;
+  resetBlankCanvasBuffer();
 
   state = normalizeBoardState({
     title: DEFAULTS.title,
@@ -6117,8 +6390,28 @@ function hideAllOverlays() {
   });
 }
 
+/** Footer hint — keep in sync with document keydown shortcuts in init(). */
+function getKeyboardShortcutsHint() {
+  return [
+    'Present (P)',
+    'Blank (B)',
+    'Timer (T)',
+    'Outline (O)',
+    'Esc',
+    '⌘/Ctrl+Z undo',
+    'Del delete',
+    '← → Space in Present',
+  ].join(' · ');
+}
+
+function syncKeyboardShortcutsHint() {
+  const hint = $('#hint');
+  if (hint) hint.textContent = getKeyboardShortcutsHint();
+}
+
 function init() {
   hideAllOverlays();
+  syncKeyboardShortcutsHint();
   bindToolbar();
 
   try {
