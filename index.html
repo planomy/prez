@@ -158,11 +158,12 @@
   </dialog>
 
   <dialog id="addDialog" class="dialog">
-    <form method="dialog" class="dialog-panel dialog-panel-sm">
+    <div class="dialog-panel dialog-panel-sm">
       <header class="dialog-header">
         <h2>New post</h2>
         <button type="button" class="btn-icon dialog-close" data-close aria-label="Close">×</button>
       </header>
+      <p class="picker-intro">Select one or more post types, then tap Done.</p>
       <div class="type-grid">
         <button type="button" class="type-card" data-open-hot="1">
           <span class="type-icon hot">◆</span>
@@ -229,7 +230,11 @@
           <span class="type-label">World map</span>
         </button>
       </div>
-    </form>
+      <div id="postPickerChips" class="picker-chips" hidden></div>
+      <footer class="dialog-footer picker-footer">
+        <button type="button" id="postPickerDone" class="btn btn-primary" disabled>Done</button>
+      </footer>
+    </div>
   </dialog>
 
   <dialog id="hotDialog" class="dialog">
@@ -239,11 +244,15 @@
         <button type="button" class="btn-icon dialog-close" data-close aria-label="Close">×</button>
       </header>
       <p class="hot-dialog-intro" id="hotDialogIntro">
-        Choose a routine — one instruction card is added for students (same colour as your selected card).
+        Select one or more routines, then tap Done. Each adds a student instruction card (same colour as your selected card).
       </p>
       <div class="hot-dialog-step">
         <div id="hotRoutineList" class="hot-routine-list"></div>
       </div>
+      <div id="hotPickerChips" class="picker-chips" hidden></div>
+      <footer class="dialog-footer picker-footer">
+        <button type="button" id="hotPickerDone" class="btn btn-primary" disabled>Done</button>
+      </footer>
     </div>
   </dialog>
 

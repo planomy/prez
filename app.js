@@ -1484,15 +1484,71 @@ function getPresentInlineImageHTML(block) {
   return `<div class="present-inline-image${hotCls}"><img src="${block.imageData}" alt="" /></div>`;
 }
 
+function blockUsesPresentEdit(block) {
+  return !!block?.presentEditable;
+}
+
+function getPresentTitleHTML(block, { showTitle = true } = {}) {
+  if (!showTitle) return '';
+  const text = escapeHtml(block.title || '');
+  if (!text && !blockUsesPresentEdit(block)) return '';
+  if (blockUsesPresentEdit(block)) {
+    return `<h1 class="present-card-title present-card-title--editable" contenteditable="true" data-present-field="title" spellcheck="true">${text || 'Untitled'}</h1>`;
+  }
+  return text ? `<h1 class="present-card-title">${text}</h1>` : '';
+}
+
+function getPresentTextBodyHTML(block, bodyHTML, extraClass = '') {
+  const cls = `present-body present-body--text${extraClass ? ` ${extraClass}` : ''}`;
+  if (blockUsesPresentEdit(block)) {
+    return `<div class="${cls} present-body--present-editable" contenteditable="true" data-present-field="content" spellcheck="true">${bodyHTML}</div>`;
+  }
+  return `<div class="${cls}">${bodyHTML}</div>`;
+}
+
 function wrapPresentTextCardHTML(block, bodyHTML, { showTitle = true } = {}) {
-  const title =
-    showTitle && block.title
-      ? `<h1 class="present-card-title">${escapeHtml(block.title)}</h1>`
-      : '';
+  const title = getPresentTitleHTML(block, { showTitle });
   const image = getPresentInlineImageHTML(block);
-  const body = `<div class="present-body present-body--text">${bodyHTML}</div>`;
+  const body = getPresentTextBodyHTML(block, bodyHTML);
   if (!image) return title + body;
   return `<div class="present-card-stack">${title}${image}${body}</div>`;
+}
+
+function syncPresentEditableFromStage() {
+  const block = getPresentBlocks()[presentIndex];
+  const card = $('.present-card', presentStage);
+  if (!block || !card || !blockUsesPresentEdit(block)) return;
+
+  const titleEl = $('[data-present-field="title"]', card);
+  if (titleEl) block.title = titleEl.textContent.trim();
+
+  if (block.type === 'table') {
+    const introEl = $('.present-table-intro[data-present-field="content"]', card);
+    if (introEl) block.content = introEl.innerHTML;
+    const table = $('.block-table', card);
+    if (table) block.tableHtml = table.outerHTML;
+  } else {
+    const contentEl = $('[data-present-field="content"]', card);
+    if (contentEl) block.content = contentEl.innerHTML;
+  }
+
+  persist();
+}
+
+function bindPresentEditable() {
+  const block = getPresentBlocks()[presentIndex];
+  const card = $('.present-card', presentStage);
+  if (!block || !card || !blockUsesPresentEdit(block)) return;
+
+  const onEdit = () => syncPresentEditableFromStage();
+
+  $('[data-present-field="title"]', card)?.addEventListener('input', onEdit);
+  $$('[data-present-field="content"]', card).forEach((el) => el.addEventListener('input', onEdit));
+
+  const table = $('.block-table', card);
+  if (table) {
+    table.addEventListener('input', onEdit);
+  }
 }
 
 function presentCardHasInlineImage(block) {
@@ -1551,7 +1607,10 @@ function getPresentListRevealHintHTML(block) {
   const done = presentListRevealCount >= total;
   const hiddenCls = done ? ' present-reveal-hint--hidden' : '';
   const aria = done ? ' aria-hidden="true"' : '';
-  return `<p class="present-reveal-hint${hiddenCls}"${aria}>Click or press Space for next bullet</p>`;
+  const editNote = blockUsesPresentEdit(block)
+    ? ' · click outside text, or use Space'
+    : '';
+  return `<p class="present-reveal-hint${hiddenCls}"${aria}>Click or press Space for next bullet${editNote}</p>`;
 }
 
 function updateBlockElement(el, block) {
@@ -3929,18 +3988,180 @@ function scrollToHotRoutine(blockId) {
   });
 }
 
-function insertHotRoutine(routineId) {
+const postPickerSelected = new Set();
+const hotPickerSelected = new Set();
+
+function createPickerRemoveBtn(onRemove) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'picker-remove';
+  btn.setAttribute('aria-label', 'Remove from selection');
+  btn.textContent = '×';
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    onRemove();
+  });
+  return btn;
+}
+
+function getPostTypeLabel(type) {
+  return BLOCK_TYPE_OPTIONS.find((o) => o.type === type)?.label || type;
+}
+
+function renderPickerChips(containerSel, items, onRemove) {
+  const el = $(containerSel);
+  if (!el) return;
+  el.innerHTML = '';
+  if (!items.length) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  items.forEach(({ id, label }) => {
+    const chip = document.createElement('span');
+    chip.className = 'picker-chip';
+    const labelEl = document.createElement('span');
+    labelEl.className = 'picker-chip-label';
+    labelEl.textContent = label;
+    chip.appendChild(labelEl);
+    chip.appendChild(createPickerRemoveBtn(() => onRemove(id)));
+    el.appendChild(chip);
+  });
+}
+
+function togglePostPicker(type) {
+  if (postPickerSelected.has(type)) postPickerSelected.delete(type);
+  else postPickerSelected.add(type);
+  syncPostPickerUI();
+}
+
+function removePostPicker(type) {
+  postPickerSelected.delete(type);
+  syncPostPickerUI();
+}
+
+function syncPostPickerUI() {
+  $$('#addDialog .type-card[data-type]').forEach((card) => {
+    const type = card.dataset.type;
+    const sel = postPickerSelected.has(type);
+    card.classList.toggle('is-picker-selected', sel);
+    card.setAttribute('aria-pressed', sel ? 'true' : 'false');
+    const rm = card.querySelector(':scope > .picker-remove');
+    if (sel && !rm) card.appendChild(createPickerRemoveBtn(() => removePostPicker(type)));
+    else if (!sel && rm) rm.remove();
+  });
+  const done = $('#postPickerDone');
+  if (done) done.disabled = postPickerSelected.size === 0;
+  renderPickerChips(
+    '#postPickerChips',
+    [...postPickerSelected].map((id) => ({ id, label: getPostTypeLabel(id) })),
+    removePostPicker
+  );
+}
+
+function commitPostPicker() {
+  const types = [...postPickerSelected];
+  if (!types.length) return;
+  postPickerSelected.clear();
+  types.forEach((type) =>
+    addBlock(type, { skipRender: true, skipFocus: true, skipToast: true })
+  );
+  const last = state.blocks[state.blocks.length - 1];
+  if (last) {
+    selectedId = last.id;
+    render();
+    focusBlockAfterTypeChange(last, last.type);
+  }
+  $('#addDialog')?.close();
+  showToast(types.length === 1 ? 'Block added' : `${types.length} blocks added`);
+}
+
+function toggleHotPicker(routineId) {
+  if (hotPickerSelected.has(routineId)) hotPickerSelected.delete(routineId);
+  else hotPickerSelected.add(routineId);
+  syncHotPickerUI();
+}
+
+function removeHotPicker(routineId) {
+  hotPickerSelected.delete(routineId);
+  syncHotPickerUI();
+}
+
+function syncHotPickerUI() {
+  $$('#hotRoutineList .hot-routine-item').forEach((btn) => {
+    const id = btn.dataset.routineId;
+    const sel = hotPickerSelected.has(id);
+    btn.classList.toggle('is-picker-selected', sel);
+    btn.setAttribute('aria-pressed', sel ? 'true' : 'false');
+    const rm = btn.querySelector(':scope > .picker-remove');
+    if (sel && !rm) btn.appendChild(createPickerRemoveBtn(() => removeHotPicker(id)));
+    else if (!sel && rm) rm.remove();
+  });
+  const done = $('#hotPickerDone');
+  if (done) done.disabled = hotPickerSelected.size === 0;
+  const items = [...hotPickerSelected].map((id) => ({
+    id,
+    label: findHotRoutine(id)?.name || id,
+  }));
+  renderPickerChips('#hotPickerChips', items, removeHotPicker);
+}
+
+function commitHotPicker() {
+  const routineIds = [...hotPickerSelected];
+  if (!routineIds.length) return;
+  hotPickerSelected.clear();
+  syncHotPickerUI();
+
+  normalizePresentOrder();
+  const presentOrderBefore = [...state.presentOrder];
+  const insertedIds = [];
+  let anchorId = selectedId;
+
+  routineIds.forEach((routineId) => {
+    const blockId = insertHotRoutine(routineId, {
+      anchorId,
+      skipUndo: true,
+      skipToast: true,
+      skipRender: true,
+      skipPersist: true,
+      skipScroll: true,
+    });
+    if (blockId) {
+      insertedIds.push(blockId);
+      anchorId = blockId;
+    }
+  });
+
+  if (insertedIds.length) {
+    hotInsertUndoStack.push({ insertedIds, presentOrder: presentOrderBefore });
+    if (hotInsertUndoStack.length > 12) hotInsertUndoStack.shift();
+    updateUndoButton();
+    selectedId = insertedIds[insertedIds.length - 1];
+    persist();
+    render();
+    resizeCanvasToContent();
+    scrollToHotRoutine(selectedId);
+    const n = insertedIds.length;
+    showToast(n === 1 ? `${findHotRoutine(routineIds[0])?.name || 'Routine'} added` : `${n} HOT activities added`);
+  }
+
+  $('#hotDialog')?.close();
+}
+
+function insertHotRoutine(routineId, opts = {}) {
   const routine = findHotRoutine(routineId);
   if (!routine?.card) {
-    showToast('Routine not found');
-    return;
+    if (!opts.skipToast) showToast('Routine not found');
+    return null;
   }
 
   const spec = routine.card;
   const accent = getHotRoutineAccent();
-  const anchor = selectedId ? getBlock(selectedId) : null;
+  const anchorId = opts.anchorId !== undefined ? opts.anchorId : selectedId;
+  const anchor = anchorId ? getBlock(anchorId) : null;
   normalizePresentOrder();
-  const presentOrderBefore = [...state.presentOrder];
+  const presentOrderBefore = opts.skipUndo ? null : [...state.presentOrder];
   let insertAt = anchor ? state.presentOrder.indexOf(anchor.id) + 1 : state.presentOrder.length;
   if (insertAt < 0) insertAt = state.presentOrder.length;
 
@@ -3976,17 +4197,22 @@ function insertHotRoutine(routineId) {
   pushBlocksClearOfHotCard(block);
   state.presentOrder.splice(insertAt, 0, block.id);
 
-  hotInsertUndoStack.push({ insertedIds: [block.id], presentOrder: presentOrderBefore });
-  if (hotInsertUndoStack.length > 12) hotInsertUndoStack.shift();
-  updateUndoButton();
+  if (!opts.skipUndo) {
+    hotInsertUndoStack.push({ insertedIds: [block.id], presentOrder: presentOrderBefore });
+    if (hotInsertUndoStack.length > 12) hotInsertUndoStack.shift();
+    updateUndoButton();
+  }
 
   selectedId = block.id;
-  persist();
-  render();
-  resizeCanvasToContent();
-  scrollToHotRoutine(block.id);
+  if (!opts.skipPersist) persist();
+  if (!opts.skipRender) {
+    render();
+    resizeCanvasToContent();
+  }
+  if (!opts.skipScroll) scrollToHotRoutine(block.id);
 
-  showToast(`${routine.name} added`);
+  if (!opts.skipToast) showToast(`${routine.name} added`);
+  return block.id;
 }
 
 function buildHotRoutineList() {
@@ -4012,13 +4238,10 @@ function buildHotRoutineList() {
       btn.innerHTML = `${iconHtml}<span class="hot-routine-text"><span class="hot-routine-name">${escapeHtml(routine.name)}</span>
         <span class="hot-routine-meta">Student instructions</span>
         <span class="hot-routine-blurb">${escapeHtml(routine.blurb)}</span></span>`;
-      btn.addEventListener('click', () => {
-        $('#hotDialog')?.close();
-        insertHotRoutine(routine.id);
-      });
       listEl.appendChild(btn);
     });
   });
+  syncHotPickerUI();
 }
 
 function openHotDialog() {
@@ -4027,6 +4250,7 @@ function openHotDialog() {
     showToast('HOT dialog missing');
     return;
   }
+  hotPickerSelected.clear();
   buildHotRoutineList();
   try {
     dialog.showModal();
@@ -4039,7 +4263,7 @@ function initHotDialog() {
   buildHotRoutineList();
 }
 
-function addBlock(type) {
+function addBlock(type, opts = {}) {
   const offsets = state.blocks.length * 24;
   const block = {
     id: uid(),
@@ -4099,11 +4323,10 @@ function addBlock(type) {
   state.blocks.push(block);
   addToPresentOrder(block.id);
   selectedId = block.id;
-  render();
-
-  focusBlockAfterTypeChange(block, type);
-
-  showToast('Block added');
+  if (!opts.skipRender) render();
+  if (!opts.skipFocus) focusBlockAfterTypeChange(block, type);
+  if (!opts.skipToast) showToast('Block added');
+  return block.id;
 }
 
 function duplicateBlock(block) {
@@ -4304,6 +4527,7 @@ function openPresent(blockId) {
 }
 
 function closePresent() {
+  syncPresentEditableFromStage();
   presentExpanded = false;
   presentRevealBlockId = null;
   presentListRevealCount = 1;
@@ -4314,6 +4538,7 @@ function closePresent() {
   if (document.fullscreenElement) {
     document.exitFullscreen().catch(() => {});
   }
+  render();
 }
 
 async function renderPresent() {
@@ -4336,12 +4561,14 @@ async function renderPresent() {
   const typeClass =
     (block.type ? ` present-card--${block.type}` : '') +
     (presentCardHasInlineImage(block) ? ' present-card--has-inline-image' : '') +
-    (listUsesRevealInPresent(block) ? ' present-card--list-reveal' : '');
+    (listUsesRevealInPresent(block) ? ' present-card--list-reveal' : '') +
+    (blockUsesPresentEdit(block) ? ' present-card--present-editable' : '');
   const titleAttr = block.title ? ` aria-label="${escapeAttr(block.title)}"` : '';
   presentStage.innerHTML = `<article class="present-card${typeClass}"${titleAttr}>${expandBtn}${getPresentHTML(block, { showTitle: !presentExpanded })}</article>`;
   setPresentExpanded(presentExpanded);
   bindPresentExpand();
   bindPresentListReveal();
+  bindPresentEditable();
   focusPresentListReveal();
   bindPresentPoll();
   bindPresentQuiz();
@@ -4352,8 +4579,7 @@ async function renderPresent() {
 }
 
 function getPresentHTML(block, { showTitle = true } = {}) {
-  const title =
-    showTitle && block.title ? `<h1 class="present-card-title">${escapeHtml(block.title)}</h1>` : '';
+  const title = getPresentTitleHTML(block, { showTitle });
   switch (block.type) {
     case 'image': {
       const img = block.imageData ? `<img src="${block.imageData}" alt="" />` : '<p>No image</p>';
@@ -4398,15 +4624,21 @@ function getPresentHTML(block, { showTitle = true } = {}) {
       return `${title}${getLinkCardHTML(openUrl, { present: true })}`;
     }
     case 'table': {
-      const tableBody = `<div class="present-body present-body--text present-body--table">${block.tableHtml || defaultTableHtml()}</div>`;
+      const tableBody = getPresentTextBodyHTML(
+        block,
+        block.tableHtml || defaultTableHtml(),
+        'present-body--table'
+      );
       const intro = block.content?.trim()
-        ? `<div class="present-body present-body--text present-table-intro">${block.content}</div>`
+        ? blockUsesPresentEdit(block)
+          ? getPresentTextBodyHTML(block, block.content, 'present-table-intro')
+          : `<div class="present-body present-body--text present-table-intro">${block.content}</div>`
         : '';
       const body = intro + tableBody;
       if (block.imageData && block.hotRoutineId) {
         return wrapPresentTextCardHTML(block, body, { showTitle });
       }
-      return title + body;
+      return getPresentTitleHTML(block, { showTitle }) + body;
     }
     case 'list': {
       const body = buildPresentListBodyHTML(block);
@@ -4443,11 +4675,17 @@ function getPresentHTML(block, { showTitle = true } = {}) {
       return title + body;
     }
     case 'heading':
-      return title + `<div class="present-body present-body--text">${block.content || '<p>Empty block</p>'}</div>`;
+      return (
+        getPresentTitleHTML(block, { showTitle }) +
+        getPresentTextBodyHTML(block, block.content || '<p>Empty block</p>')
+      );
     case 'note':
       return wrapPresentTextCardHTML(block, block.content || '<p>Empty block</p>', { showTitle });
     default:
-      return title + `<div class="present-body present-body--text">${block.content || '<p>Empty block</p>'}</div>`;
+      return (
+        getPresentTitleHTML(block, { showTitle }) +
+        getPresentTextBodyHTML(block, block.content || '<p>Empty block</p>')
+      );
   }
 }
 
@@ -4456,6 +4694,7 @@ function isPresentTypingTarget(target) {
 }
 
 function presentAdvance() {
+  syncPresentEditableFromStage();
   const blocks = getPresentBlocks();
   const block = blocks[presentIndex];
   if (block && listUsesRevealInPresent(block)) {
@@ -4490,6 +4729,7 @@ function presentAdvance() {
 }
 
 function presentRetreat() {
+  syncPresentEditableFromStage();
   const blocks = getPresentBlocks();
   const block = blocks[presentIndex];
   if (block && listUsesRevealInPresent(block) && presentListRevealCount > 1) {
@@ -4526,6 +4766,7 @@ function presentRetreat() {
 }
 
 function presentNext() {
+  syncPresentEditableFromStage();
   const blocks = getPresentBlocks();
   if (blocks.length === 0) return;
   presentRevealBlockId = null;
@@ -4534,6 +4775,7 @@ function presentNext() {
 }
 
 function presentPrev() {
+  syncPresentEditableFromStage();
   const blocks = getPresentBlocks();
   if (blocks.length === 0) return;
   presentRevealBlockId = null;
@@ -4631,6 +4873,13 @@ function bindPresentListReveal() {
   if (!card) return;
   card.addEventListener('click', (e) => {
     if (e.target.closest('.present-expand, .present-nav, a, button')) return;
+    if (
+      e.target.closest(
+        '.present-body--present-editable, .present-card-title--editable, [data-present-field]'
+      )
+    ) {
+      return;
+    }
     if (isPresentTypingTarget(e.target)) return;
     presentAdvance();
   });
@@ -5311,6 +5560,11 @@ function applyBoardTemplate(templateId) {
 
   const blocks = (tpl.blockSpecs || []).map((spec, i) => instantiateTemplateBlock(spec, i));
   const board = tpl.board || {};
+  if (board.presentEditable) {
+    blocks.forEach((b) => {
+      b.presentEditable = true;
+    });
+  }
   const centerBlock =
     blocks.find((b) => b.mindMapCenter) || (board.mindMap || tpl.layout === 'mind-map' ? blocks[0] : null);
 
@@ -5349,7 +5603,8 @@ function applyBoardTemplate(templateId) {
   render();
   persist();
   $('#templatesDialog')?.close();
-  showToast(`${tpl.name} ready — edit cards and Present`);
+  const editNote = board.presentEditable ? ' · editable in Present' : '';
+  showToast(`${tpl.name} ready — edit cards and Present${editNote}`);
 }
 
 function createTemplateCard(tpl, { large = false } = {}) {
@@ -5753,6 +6008,8 @@ function openBgDialog() {
 function openAddDialog() {
   const dialog = $('#addDialog');
   if (!dialog) return;
+  postPickerSelected.clear();
+  syncPostPickerUI();
   try {
     dialog.showModal();
   } catch (err) {
@@ -5817,17 +6074,37 @@ function bindToolbar() {
   });
 
   $$('.type-card[data-type]').forEach((card) => {
-    card.addEventListener('click', () => {
-      addBlock(card.dataset.type);
-      $('#addDialog').close();
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.picker-remove')) return;
+      togglePostPicker(card.dataset.type);
     });
   });
+
+  $('#postPickerDone')?.addEventListener('click', commitPostPicker);
+
+  $('#hotRoutineList')?.addEventListener('click', (e) => {
+    const item = e.target.closest('.hot-routine-item');
+    if (!item || e.target.closest('.picker-remove')) return;
+    toggleHotPicker(item.dataset.routineId);
+  });
+
+  $('#hotPickerDone')?.addEventListener('click', commitHotPicker);
 
   $$('[data-open-hot]').forEach((btn) => {
     btn.addEventListener('click', () => {
       $('#addDialog').close();
       openHotDialog();
     });
+  });
+
+  $('#addDialog')?.addEventListener('close', () => {
+    postPickerSelected.clear();
+    syncPostPickerUI();
+  });
+
+  $('#hotDialog')?.addEventListener('close', () => {
+    hotPickerSelected.clear();
+    syncHotPickerUI();
   });
 }
 

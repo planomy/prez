@@ -10,23 +10,28 @@
   const BG_STEM_SCI = 'linear-gradient(160deg, #14532d 0%, #15803d 38%, #bbf7d0 100%)';
 
   const INVESTIGATION_RESULTS_TABLE = `<table class="block-table">
-    <thead><tr><th>Trial</th><th>Result (with units)</th></tr></thead>
+    <thead><tr><th contenteditable="true">Trial</th><th contenteditable="true">Result (with units)</th></tr></thead>
     <tbody>
-      <tr><td>1</td><td contenteditable="true">—</td></tr>
-      <tr><td>2</td><td contenteditable="true">—</td></tr>
-      <tr><td>3</td><td contenteditable="true">—</td></tr>
-      <tr><td>Average</td><td contenteditable="true">—</td></tr>
+      <tr><td contenteditable="true">1</td><td contenteditable="true">—</td></tr>
+      <tr><td contenteditable="true">2</td><td contenteditable="true">—</td></tr>
+      <tr><td contenteditable="true">3</td><td contenteditable="true">—</td></tr>
+      <tr><td contenteditable="true">Average</td><td contenteditable="true">—</td></tr>
     </tbody>
   </table>`;
 
   const PSMT_WORKING_TABLE = `<table class="block-table">
-    <thead><tr><th>Step</th><th>Working (show calculations)</th></tr></thead>
+    <thead><tr><th contenteditable="true">Step</th><th contenteditable="true">Working (show calculations)</th></tr></thead>
     <tbody>
-      <tr><td>1</td><td contenteditable="true">—</td></tr>
-      <tr><td>2</td><td contenteditable="true">—</td></tr>
-      <tr><td>3</td><td contenteditable="true">—</td></tr>
+      <tr><td contenteditable="true">1</td><td contenteditable="true">—</td></tr>
+      <tr><td contenteditable="true">2</td><td contenteditable="true">—</td></tr>
+      <tr><td contenteditable="true">3</td><td contenteditable="true">—</td></tr>
     </tbody>
   </table>`;
+
+  /** Blank zone teachers fill when modelling writing on the board. */
+  function modelZone(label) {
+    return `<p><strong>${label}</strong></p><p><br></p>`;
+  }
 
   function templateImage(key) {
     return window.PREZ_TEMPLATE_IMAGES?.[key] || '';
@@ -1117,6 +1122,7 @@
         title: 'PSMT Builder',
         background: BG_STEM_MATH,
         layoutMode: 'rows',
+        presentEditable: true,
       },
       blockSpecs: [
         {
@@ -1133,16 +1139,18 @@
           accent: 'mint',
           title: '1. Understand the problem',
           content: note(
-            '<p><strong>What is the real-world situation?</strong></p><p>Describe the context in your own words.</p><p><strong>What are you being asked to find, decide or recommend?</strong></p><p>State the question clearly — e.g. “How many…?”, “What is the best…?”, “Should we…?”</p>'
+            '<p><strong>What is the real-world situation?</strong></p><p>Describe the context in your own words.</p><p><strong>What are you being asked to find, decide or recommend?</strong></p><p>State the question clearly — e.g. “How many…?”, “What is the best…?”, “Should we…?”</p>' +
+              modelZone('Teacher model — problem & question')
           ),
-          h: 260,
+          h: 300,
         },
         {
           type: 'note',
           accent: 'teal',
           title: '2. Given information',
           content: note(
-            '<p>List all numbers, units, prices, measurements, conditions and rules you are given.</p><ul><li>Include units (m, kg, $, %, hours…)</li><li>Note anything missing that you may need to assume</li></ul>'
+            '<p>List all numbers, units, prices, measurements, conditions and rules you are given.</p><ul><li>Include units (m, kg, $, %, hours…)</li><li>Note anything missing that you may need to assume</li></ul>' +
+              modelZone('Teacher model — given information')
           ),
           h: 240,
         },
@@ -1173,8 +1181,9 @@
             'Percentage · ratio · rate · area · volume',
             'Average · table · graph · equation',
             'In one sentence: I will use ________ because ________.',
+            'Teacher model — edit the sentence above with your plan.',
           ]),
-          h: 240,
+          h: 280,
         },
         {
           type: 'table',
@@ -1188,27 +1197,30 @@
           accent: 'rose',
           title: '7. Interpret the answer',
           content: note(
-            '<p>What does your numerical answer mean in the <strong>real-world situation</strong>?</p><p>Write in full sentences — not just the number.</p><p><em>e.g. “This means the school needs about 24 trays of food for the camp.”</em></p>'
+            '<p>What does your numerical answer mean in the <strong>real-world situation</strong>?</p><p>Write in full sentences — not just the number.</p><p><em>e.g. “This means the school needs about 24 trays of food for the camp.”</em></p>' +
+              modelZone('Teacher model — interpretation')
           ),
-          h: 220,
+          h: 280,
         },
         {
           type: 'note',
           accent: 'mint-p',
           title: '8. Justify choices',
           content: note(
-            '<p><strong>Why was this method reasonable?</strong></p><p><strong>Why is your solution suitable</strong> for the question asked?</p><p>Mention assumptions, units, and whether your answer is sensible (too big? too small?).</p>'
+            '<p><strong>Why was this method reasonable?</strong></p><p><strong>Why is your solution suitable</strong> for the question asked?</p><p>Mention assumptions, units, and whether your answer is sensible (too big? too small?).</p>' +
+              modelZone('Teacher model — justification')
           ),
-          h: 240,
+          h: 280,
         },
         {
           type: 'note',
           accent: 'slate',
           title: '9. Final recommendation',
           content: note(
-            '<p>Give your <strong>final answer in words</strong> — a clear recommendation or decision for someone in the real situation.</p><p><em>Stems: “I recommend… because…” · “The best option is… since…”</em></p>'
+            '<p>Give your <strong>final answer in words</strong> — a clear recommendation or decision for someone in the real situation.</p><p><em>Stems: “I recommend… because…” · “The best option is… since…”</em></p>' +
+              modelZone('Teacher model — final recommendation')
           ),
-          h: 220,
+          h: 280,
         },
       ],
     },
@@ -1223,6 +1235,7 @@
         title: 'Practical investigation report',
         background: BG_STEM_SCI,
         layoutMode: 'rows',
+        presentEditable: true,
       },
       blockSpecs: [
         {
@@ -1230,27 +1243,30 @@
           accent: 'slate',
           title: 'Practical investigation report',
           content: note(
-            '<p><strong>Investigation title:</strong> What are we testing?</p><p><em>Teacher line: Science writing is not just “what we did”. It is “what the evidence shows”.</em></p>'
+            '<p><strong>Investigation title:</strong> What are we testing?</p><p><em>Teacher line: Science writing is not just “what we did”. It is “what the evidence shows”.</em></p>' +
+              modelZone('Teacher model — investigation title')
           ),
-          h: 200,
+          h: 260,
         },
         {
           type: 'note',
           accent: 'mint',
           title: 'Research question',
           content: note(
-            '<p>What question are we trying to answer?</p><p><em>Example: How does the amount of sunlight affect plant growth?</em></p>'
+            '<p>What question are we trying to answer?</p><p><em>Example: How does the amount of sunlight affect plant growth?</em></p>' +
+              modelZone('Teacher model — research question')
           ),
-          h: 200,
+          h: 260,
         },
         {
           type: 'note',
           accent: 'teal',
           title: 'Hypothesis / prediction',
           content: note(
-            '<p><strong>If</strong> ________ changes, <strong>then</strong> ________ will happen <strong>because</strong> ________.</p><p>State what you expect and the science behind your prediction.</p>'
+            '<p><strong>If</strong> ________ changes, <strong>then</strong> ________ will happen <strong>because</strong> ________.</p><p>State what you expect and the science behind your prediction.</p>' +
+              modelZone('Teacher model — hypothesis')
           ),
-          h: 220,
+          h: 280,
         },
         {
           type: 'list',
@@ -1261,17 +1277,19 @@
             'Dependent variable (what we measure, with units):',
             'Controlled variables (what we keep the same):',
             'Controlled variables (continued):',
+            'Teacher model — edit each line with your investigation.',
           ]),
-          h: 260,
+          h: 300,
         },
         {
           type: 'note',
           accent: 'violet',
           title: 'Materials and safety',
           content: note(
-            '<p><strong>Equipment needed:</strong></p><ul><li></li><li></li></ul><p><strong>Safety:</strong> List risks and how you will manage them (PPE, supervision, handling…).</p>'
+            '<p><strong>Equipment needed:</strong></p><ul><li></li><li></li></ul><p><strong>Safety:</strong> List risks and how you will manage them (PPE, supervision, handling…).</p>' +
+              modelZone('Teacher model — materials & safety notes')
           ),
-          h: 260,
+          h: 300,
         },
         {
           type: 'list',
@@ -1285,8 +1303,9 @@
             'Step 4 —',
             'Step 5 —',
             'Write clearly enough for someone else to repeat the investigation.',
+            'Teacher model — replace each step with your method.',
           ]),
-          h: 280,
+          h: 320,
         },
         {
           type: 'table',
@@ -1300,9 +1319,10 @@
           accent: 'ocean-p',
           title: 'Graph / representation',
           content: note(
-            '<p>Insert a <strong>graph, diagram, labelled drawing or photo</strong> of your results (use image on this card or sketch on whiteboard).</p><p>Label axes, units, and title. State what type of graph you chose and why.</p>'
+            '<p>Insert a <strong>graph, diagram, labelled drawing or photo</strong> of your results (card footer → add image).</p><p>Label axes, units, and title. State what type of graph you chose and why.</p>' +
+              modelZone('Teacher model — graph title & what the graph shows')
           ),
-          h: 220,
+          h: 280,
         },
         {
           type: 'list',
@@ -1315,8 +1335,9 @@
             'The pattern suggests…',
             'One unusual result was…',
             'Link your evidence to the research question.',
+            'Teacher model — type your full analysis paragraph in a new bullet below.',
           ]),
-          h: 260,
+          h: 300,
         },
         {
           type: 'list',
@@ -1328,8 +1349,9 @@
             'Was the test fair? What made it fair or unfair?',
             'Errors or limitations that affected the result:',
             'How could the investigation be improved next time?',
+            'Teacher model — type your conclusion in a new bullet below.',
           ]),
-          h: 280,
+          h: 320,
         },
       ],
     },
@@ -1343,6 +1365,7 @@
         title: 'Fair test planner',
         background: BG_STEM_SCI,
         layoutMode: 'rows',
+        presentEditable: true,
       },
       blockSpecs: [
         {
@@ -1359,9 +1382,10 @@
           accent: 'mint',
           title: 'Research question',
           content: note(
-            '<p>What are you trying to find out?</p><p><em>How does ________ affect ________?</em></p>'
+            '<p>What are you trying to find out?</p><p><em>How does ________ affect ________?</em></p>' +
+              modelZone('Teacher model — research question')
           ),
-          h: 200,
+          h: 260,
         },
         {
           type: 'list',
@@ -1371,8 +1395,9 @@
             'Independent variable (what I will change):',
             'Dependent variable (what I will measure, with units):',
             'Controlled variables (what I will keep the same):',
+            'Teacher model — edit each line with your prac details.',
           ]),
-          h: 240,
+          h: 280,
         },
         {
           type: 'list',
@@ -1384,8 +1409,9 @@
             'Step 2 —',
             'Step 3 —',
             'Step 4 —',
+            'Teacher model — replace each step with your method.',
           ]),
-          h: 240,
+          h: 280,
         },
         {
           type: 'note',
@@ -1401,9 +1427,10 @@
           accent: 'ocean',
           title: 'Prediction',
           content: note(
-            '<p><strong>If</strong> ________ changes, <strong>then</strong> ________ will happen <strong>because</strong> ________.</p>'
+            '<p><strong>If</strong> ________ changes, <strong>then</strong> ________ will happen <strong>because</strong> ________.</p>' +
+              modelZone('Teacher model — prediction')
           ),
-          h: 200,
+          h: 260,
         },
       ],
     },

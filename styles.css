@@ -2340,6 +2340,84 @@ body {
   transform: translateY(-2px);
 }
 
+.type-card,
+.hot-routine-item {
+  position: relative;
+}
+
+.type-card.is-picker-selected,
+.hot-routine-item.is-picker-selected {
+  border-color: var(--accent);
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.picker-intro {
+  margin: 0 20px 12px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.picker-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 20px 12px;
+}
+
+.picker-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 4px 4px 10px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.1);
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.picker-chip-label {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-remove {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--text);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.type-card > .picker-remove,
+.hot-routine-item > .picker-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+}
+
+.picker-remove:hover {
+  background: rgba(0, 0, 0, 0.14);
+}
+
+.picker-footer {
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  margin-top: 4px;
+}
+
 .type-icon {
   width: 44px;
   height: 44px;
@@ -3115,6 +3193,47 @@ body {
   font-size: 0.8rem;
   color: rgba(0, 0, 0, 0.45);
   text-align: center;
+}
+
+/* STEM / scaffold cards: type to model in Present */
+.present-card--present-editable {
+  cursor: default;
+}
+
+.present-card--present-editable.present-card--list-reveal {
+  cursor: default;
+}
+
+.present-card-title--editable {
+  outline: none;
+  cursor: text;
+}
+
+.present-card-title--editable:focus {
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.35);
+  border-radius: 4px;
+}
+
+.present-body--present-editable {
+  outline: none;
+  cursor: text;
+  min-height: 2em;
+}
+
+.present-body--present-editable:focus {
+  box-shadow: inset 0 0 0 2px rgba(37, 99, 235, 0.25);
+  border-radius: 6px;
+}
+
+.present-card--present-editable .block-table th[contenteditable='true'],
+.present-card--present-editable .block-table td[contenteditable='true'] {
+  cursor: text;
+}
+
+.present-card--present-editable .block-table th[contenteditable='true']:focus,
+.present-card--present-editable .block-table td[contenteditable='true']:focus {
+  outline: 2px solid rgba(37, 99, 235, 0.45);
+  outline-offset: -2px;
 }
 
 .present-body--text a {
