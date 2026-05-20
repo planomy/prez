@@ -2139,6 +2139,14 @@ function bindBodyInputs(el, block) {
     };
   }
 
+  const bloomTaskEl = $('[data-field="bloom-task"]', el);
+  if (bloomTaskEl) {
+    bloomTaskEl.oninput = () => {
+      block.bloomTask = bloomTaskEl.innerHTML;
+      persist();
+    };
+  }
+
   const urlInput = $('[data-field="url"]', el);
   if (urlInput) {
     let linkPreviewTimer;
@@ -2897,6 +2905,7 @@ function clearBlockTypeFields(block) {
   delete block.quizCorrect;
   delete block.quizQuestions;
   delete block.bloomLevels;
+  delete block.bloomTask;
   delete block.brainBreakCategories;
   delete block.mapPins;
   delete block.mapRevealAll;
@@ -3324,18 +3333,31 @@ function getBloomLevelHTML(level, { present = false } = {}) {
     </div>`;
 }
 
+function getBloomTaskEditorHTML(block) {
+  const task = block.bloomTask || '';
+  return `<div class="bloom-task-editor block-content" contenteditable="true" data-field="bloom-task" data-placeholder="Optional task for students (shown at 26pt below the pyramid in Present)…">${task}</div>`;
+}
+
+function getBloomPresentTaskHTML(block) {
+  const task = (block.bloomTask || '').trim();
+  if (!task) return '';
+  return `<div class="present-bloom-task">${task}</div>`;
+}
+
 function getBloomEditorHTML(block) {
   normalizeBloomData(block);
   const title = escapeHtml(block.title || '');
   const levels = block.bloomLevels.map((level) => getBloomLevelHTML(level)).join('');
   return `<input class="block-title-input" type="text" value="${title}" placeholder="Bloom's taxonomy" data-field="title" />
-    <div class="block-bloom">${levels}</div>`;
+    <div class="block-bloom">${levels}</div>
+    ${getBloomTaskEditorHTML(block)}`;
 }
 
 function getBloomPresentHTML(block) {
   normalizeBloomData(block);
   const levels = block.bloomLevels.map((level) => getBloomLevelHTML(level, { present: true })).join('');
-  return `<div class="present-bloom">${levels}</div>`;
+  const task = getBloomPresentTaskHTML(block);
+  return `<div class="present-bloom-wrap"><div class="present-bloom">${levels}</div>${task}</div>`;
 }
 
 function defaultPollOptions() {

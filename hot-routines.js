@@ -3,7 +3,7 @@
  */
 (function () {
   const HOT_ICON_DIR = 'assets/hot/';
-  const HOT_ICON_V = '7';
+  const HOT_ICON_V = '8';
 
   function hotIcon(id) {
     return `${HOT_ICON_DIR}${id}.png?v=${HOT_ICON_V}`;
@@ -93,9 +93,33 @@
     return html;
   }
 
+  /** 2×2 vocabulary grid: definition, characteristics, examples, non-examples. */
+  function buildFrayerTable() {
+    const cells = [
+      ['Definition', 'What does it mean?'],
+      ['Characteristics', 'What is it like? Key features…'],
+      ['Examples', 'Examples from our topic…'],
+      ['Non-examples', 'What it is not / common mistakes…'],
+    ];
+    let html =
+      '<table class="block-table frayer-table" contenteditable="false"><tbody>';
+    html += `<tr><td colspan="2" class="frayer-term" contenteditable="true">${escHtml('Key term')}</td></tr>`;
+    for (let row = 0; row < 2; row++) {
+      html += '<tr>';
+      for (let col = 0; col < 2; col++) {
+        const [label, hint] = cells[row * 2 + col];
+        html += `<td class="frayer-cell" contenteditable="true"><strong>${escHtml(label)}</strong> — ${escHtml(hint)}</td>`;
+      }
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+    return html;
+  }
+
   window.PREZ_HOT_ICON = hotIcon;
   window.PREZ_BUILD_TOURNAMENT_BRACKET = buildTournamentBracketTable;
   window.PREZ_BUILD_DECISION_MATRIX = buildDecisionMatrixTable;
+  window.PREZ_BUILD_FRAYER_TABLE = buildFrayerTable;
 
   window.PREZ_HOT_ROUTINES = [
     {
@@ -152,11 +176,82 @@
             ),
           },
         },
+        {
+          id: 'qft',
+          name: 'Question formulation (QFT)',
+          blurb: 'Generate, improve, then prioritise questions to investigate.',
+          icon: hotIcon('qft'),
+          card: {
+            type: 'note',
+            title: 'Question formulation (QFT)',
+            h: 420,
+            w: 380,
+            content: note(
+              '<p><strong>Produce</strong> — Write as many questions as you can about the topic or source. Prefer <em>How…</em> and <em>Why…</em> questions. Avoid yes/no questions for now.</p>' +
+                '<p><strong>Improve</strong> — Choose two questions. Rewrite each so it is clearer, more open, and more interesting.</p>' +
+                '<p><strong>Prioritise</strong> — Pick your <strong>top 3</strong> questions to investigate. Be ready to say why they matter.</p>'
+            ),
+          },
+        },
+        {
+          id: 'socratic-stems',
+          name: 'Socratic stems',
+          blurb: 'Sentence starters for deeper discussion and seminar talk.',
+          icon: hotIcon('socratic-stems'),
+          card: {
+            type: 'note',
+            title: 'Socratic stems',
+            h: 440,
+            w: 400,
+            content: note(
+              '<p><em>Use these to respond to a classmate or to push your own thinking.</em></p>' +
+                '<p><strong>Clarify</strong> — Can you say more about…? / What do you mean when you say…?</p>' +
+                '<p><strong>Reasoning</strong> — What is your evidence for…? / How does that connect to…?</p>' +
+                '<p><strong>Viewpoints</strong> — What would someone who disagrees say? / From whose perspective is this?</p>' +
+                '<p><strong>Implications</strong> — If that is true, what follows? / So what? Why does this matter?</p>' +
+                '<p><strong>Your turn</strong> — Choose one stem and use it in your next comment.</p>'
+            ),
+          },
+        },
       ],
     },
     {
       category: 'Reflection',
       routines: [
+        {
+          id: 'kwl',
+          name: 'KWL',
+          blurb: 'What you know, want to know, and learned — before and after a unit or lesson.',
+          icon: hotIcon('kwl'),
+          card: {
+            type: 'note',
+            title: 'KWL',
+            h: 340,
+            w: 360,
+            content: note(
+              '<p><strong>Know</strong> — What do I already know about this topic?</p>' +
+                '<p><strong>Want</strong> — What do I want to find out? What am I curious about?</p>' +
+                '<p><strong>Learned</strong> — What did I learn today? (complete after the lesson)</p>'
+            ),
+          },
+        },
+        {
+          id: 'rose-thorn-bud',
+          name: 'Rose · Thorn · Bud',
+          blurb: 'Reflect on success, difficulty, and what is emerging next.',
+          icon: hotIcon('rose-thorn-bud'),
+          card: {
+            type: 'note',
+            title: 'Rose · Thorn · Bud',
+            h: 360,
+            w: 360,
+            content: note(
+              '<p><strong>Rose</strong> — What went well? What are you proud of?</p>' +
+                '<p><strong>Thorn</strong> — What was difficult, frustrating, or challenging?</p>' +
+                '<p><strong>Bud</strong> — What is starting to grow? What are you looking forward to trying?</p>'
+            ),
+          },
+        },
         {
           id: 'used-to-think-now-think',
           name: 'I used to think… Now I think…',
@@ -210,6 +305,43 @@
     {
       category: 'Analysis',
       routines: [
+        {
+          id: 'soapstone',
+          name: 'SOAPSTone',
+          blurb: 'Analyse a text or source: speaker, occasion, audience, purpose, subject, tone.',
+          icon: hotIcon('soapstone'),
+          card: {
+            type: 'note',
+            title: 'SOAPSTone',
+            h: 440,
+            w: 400,
+            content: note(
+              '<p><em>Use the source on the previous card (or projected text).</em></p>' +
+                '<p><strong>Speaker</strong> — Who is the voice behind this? What do we know about them?</p>' +
+                '<p><strong>Occasion</strong> — When and where was this created? What was happening?</p>' +
+                '<p><strong>Audience</strong> — Who is this for? Who was meant to see or hear it?</p>' +
+                '<p><strong>Purpose</strong> — Why was this created? What is the creator trying to achieve?</p>' +
+                '<p><strong>Subject</strong> — What is it about? What is the main topic or message?</p>' +
+                '<p><strong>Tone</strong> — What is the attitude or mood? How does it make you feel?</p>'
+            ),
+          },
+        },
+        {
+          id: 'frayer-model',
+          name: 'Frayer model',
+          blurb: 'Define a key term: definition, features, examples, and non-examples.',
+          icon: hotIcon('frayer-model'),
+          card: {
+            type: 'table',
+            title: 'Frayer model',
+            w: 520,
+            h: 480,
+            content: note(
+              '<p>Replace <strong>Key term</strong>, then fill each quadrant. Use precise vocabulary.</p>'
+            ),
+            tableHtml: buildFrayerTable(),
+          },
+        },
         {
           id: 'see-think-wonder',
           name: 'See · Think · Wonder',
