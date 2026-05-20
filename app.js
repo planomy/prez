@@ -19,18 +19,21 @@ const ACCENT_PASTEL = [
 const ACCENTS = [...ACCENT_DARK, ...ACCENT_PASTEL];
 
 const BLOCK_TYPE_OPTIONS = [
-  { type: 'note', icon: 'Aa', label: 'Note', iconClass: 'note' },
-  { type: 'sticky', icon: '▪', label: 'Quick sticky', iconClass: 'sticky' },
+  { type: 'bloom', icon: '△', label: "Bloom's taxonomy", iconClass: 'bloom' },
+  { type: 'brainbreak', icon: '⚡', label: 'Brain break', iconClass: 'brainbreak' },
+  { type: 'document', icon: '📄', label: 'Document', iconClass: 'document' },
   { type: 'heading', icon: 'H', label: 'Heading', iconClass: 'heading' },
   { type: 'image', icon: '▣', label: 'Image', iconClass: 'image' },
-  { type: 'document', icon: '📄', label: 'Document', iconClass: 'document' },
   { type: 'link', icon: '🔗', label: 'Link', iconClass: 'link' },
   { type: 'list', icon: '≡', label: 'List', iconClass: 'list' },
+  { type: 'note', icon: 'Aa', label: 'Note', iconClass: 'note' },
+  { type: 'poll', icon: '◉', label: 'Poll', iconClass: 'poll' },
+  { type: 'sticky', icon: '▪', label: 'Quick sticky', iconClass: 'sticky' },
+  { type: 'quiz', icon: '?', label: 'Quiz', iconClass: 'quiz' },
   { type: 'table', icon: '⊞', label: 'Table', iconClass: 'table' },
   { type: 'timer', icon: '⏱', label: 'Timer', iconClass: 'timer' },
-  { type: 'poll', icon: '◉', label: 'Poll', iconClass: 'poll' },
-  { type: 'quiz', icon: '?', label: 'Quiz', iconClass: 'quiz' },
   { type: 'whiteboard', icon: '▢', label: 'Whiteboard', iconClass: 'whiteboard' },
+  { type: 'worldmap', icon: '🌍', label: 'World map', iconClass: 'worldmap' },
 ];
 
 const BACKGROUNDS = [
@@ -148,6 +151,178 @@ const DEFAULTS = {
 const MIND_MAP_BRANCH = { w: 280, h: 180, accent: 'gold' };
 const MIND_MAP_HUB = { w: 480, h: 220, accent: 'ocean' };
 
+/** Bloom's taxonomy — top (Create) to bottom (Remember). */
+const BLOOM_LEVELS_DEFAULT = [
+  {
+    name: 'Create',
+    description: 'Produce new or original work',
+    verbs: [
+      'design',
+      'assemble',
+      'construct',
+      'conjecture',
+      'develop',
+      'formulate',
+      'author',
+      'investigate',
+    ],
+    header: '#b91c4a',
+    surface: '#fecdd3',
+    label: '#9f1239',
+  },
+  {
+    name: 'Evaluate',
+    description: 'Justify a stand or decision',
+    verbs: ['appraise', 'argue', 'defend', 'judge', 'select', 'support', 'value', 'critique', 'weigh'],
+    header: '#c2410c',
+    surface: '#fed7aa',
+    label: '#9a3412',
+  },
+  {
+    name: 'Analyse',
+    description: 'Draw connections among ideas',
+    verbs: [
+      'differentiate',
+      'organise',
+      'relate',
+      'compare',
+      'contrast',
+      'distinguish',
+      'examine',
+      'experiment',
+      'question',
+      'test',
+    ],
+    header: '#ca8a04',
+    surface: '#fef08a',
+    label: '#854d0e',
+  },
+  {
+    name: 'Apply',
+    description: 'Use information in new situations',
+    verbs: [
+      'execute',
+      'implement',
+      'solve',
+      'use',
+      'demonstrate',
+      'interpret',
+      'operate',
+      'schedule',
+      'sketch',
+    ],
+    header: '#65a30d',
+    surface: '#d9f99d',
+    label: '#3f6212',
+  },
+  {
+    name: 'Understand',
+    description: 'Explain ideas or concepts',
+    verbs: [
+      'classify',
+      'describe',
+      'discuss',
+      'explain',
+      'identify',
+      'locate',
+      'recognise',
+      'report',
+      'select',
+      'translate',
+    ],
+    header: '#0284c7',
+    surface: '#bae6fd',
+    label: '#075985',
+  },
+  {
+    name: 'Remember',
+    description: 'Recall facts and basic concepts',
+    verbs: ['define', 'duplicate', 'list', 'memorise', 'repeat', 'state'],
+    header: '#1d4ed8',
+    surface: '#bfdbfe',
+    label: '#1e3a8a',
+  },
+];
+
+const BRAIN_BREAK_DEFAULT = [
+  {
+    name: 'Quick & energising',
+    hint: 'Physical movement — get the wiggles out or boost low energy',
+    accent: '#ea580c',
+    surface: '#ffedd5',
+    activities: [
+      {
+        title: 'Silent Ball',
+        detail:
+          'Students pass a soft ball around the room silently. If someone drops it, makes a bad pass, or makes a noise, they are out.',
+      },
+      {
+        title: 'Statues',
+        detail:
+          'Call out a theme (e.g. “At the beach”) and count to three. Students jump into a pose and freeze still while you admire the statues.',
+      },
+      {
+        title: '5-4-3-2-1',
+        detail:
+          '5 star jumps, 4 squats, 3 spins, 2 hops, and 1 deep breath — a quick sequence to get hearts pumping.',
+      },
+      {
+        title: 'Rock Paper Scissors tournament',
+        detail: 'Students play quick rounds; losers sit down until one champion remains.',
+      },
+    ],
+  },
+  {
+    name: 'Calming & mindful',
+    hint: 'Focus reset when the class is overstimulated or before quiet work',
+    accent: '#0284c7',
+    surface: '#e0f2fe',
+    activities: [
+      {
+        title: 'Focus ball / mindful listening',
+        detail:
+          'Sound a chime or bell. Students close their eyes and listen until the sound completely fades away.',
+      },
+      {
+        title: 'Square breathing',
+        detail: 'Inhale for 4, hold for 4, exhale for 4, hold for 4. Visual guides (e.g. GoNoodle) can help.',
+      },
+      {
+        title: 'Jellyfish video',
+        detail: 'Dim the lights and play a calming jellyfish or nature video to help students de-escalate.',
+      },
+      {
+        title: 'Finger tracing',
+        detail:
+          'Students trace one hand with a finger — inhale up each finger, exhale down the other side.',
+      },
+    ],
+  },
+  {
+    name: 'Quick thinking & social',
+    hint: 'Brief cognitive shifts that build community without heavy movement',
+    accent: '#7c3aed',
+    surface: '#ede9fe',
+    activities: [
+      {
+        title: 'Would you rather?',
+        detail:
+          'Ask one question (e.g. “Pet dragon or pet unicorn?”). Students discuss or move to different sides of the room.',
+      },
+      {
+        title: 'Count to 20',
+        detail:
+          'The class counts to 20 one voice at a time. If two people speak at once, restart at one — builds focus and listening.',
+      },
+      {
+        title: 'Mirror mirror',
+        detail:
+          'In pairs, one student leads slow movements and the partner mirrors them perfectly, then swap.',
+      },
+    ],
+  },
+];
+
 let timerState = { running: false, endAt: null, remainingSec: 300 };
 let timerFloatDismissed = false;
 let state = loadState();
@@ -162,6 +337,10 @@ let presentQuizRevealBlockId = null;
 let presentQuizQuestionIndex = 0;
 let presentQuizQuestionAnswered = false;
 let presentQuizPickedIndex = null;
+let presentBrainBreakRevealBlockId = null;
+let presentBrainBreakIndex = 0;
+let presentMapRevealBlockId = null;
+let presentMapPinCount = 1;
 let timerTickInterval = null;
 let blankDrawCtx = null;
 let blankDrawing = false;
@@ -270,6 +449,9 @@ function normalizeBoardState(data) {
     if (!order.includes(b.id)) order.push(b.id);
     normalizePollData(b);
     normalizeQuizData(b);
+    normalizeBloomData(b);
+    normalizeBrainBreakData(b);
+    normalizeWorldMapData(b);
   });
   merged.presentOrder = order;
   merged.blankContent = merged.blankContent || '';
@@ -1349,6 +1531,17 @@ function syncBlockFooter(el, block) {
   if (block.type === 'list') {
     left.push(getListRevealFooterHTML(block));
   }
+  if (block.type === 'worldmap') {
+    left.push(getMapRevealFooterHTML(block));
+    left.push(
+      '<label class="block-footer-btn block-footer-btn-replace" title="Replace map with a high-res image">Replace map<input type="file" accept="image/*" data-field="image" hidden /></label>'
+    );
+    if (getWorldMapMapSrc(block)) {
+      left.push(
+        '<button type="button" class="block-footer-btn" data-action="reset-map-image">Default map</button>'
+      );
+    }
+  }
 
   const start = left.length ? `<div class="block-footer-start">${left.join('')}</div>` : '';
   footer.innerHTML = `${start}${getPresentFooterButtonHTML()}`;
@@ -1455,6 +1648,12 @@ function getBodyHTML(block) {
         <div class="block-table-wrap">${block.tableHtml || defaultTableHtml()}</div>`;
     case 'poll':
       return getPollEditorHTML(block);
+    case 'bloom':
+      return getBloomEditorHTML(block);
+    case 'brainbreak':
+      return getBrainBreakEditorHTML(block);
+    case 'worldmap':
+      return getWorldMapEditorHTML(block);
     case 'quiz':
       return getQuizEditorHTML(block);
     case 'timer': {
@@ -1858,14 +2057,13 @@ function bindBodyInputs(el, block) {
     urlInput.onblur = () => syncLinkPreview(el, block);
   }
 
-  const fileInput = $('[data-field="image"]', el);
-  if (fileInput) {
+  $$('[data-field="image"]', el).forEach((fileInput) => {
     fileInput.onchange = () => {
       const file = fileInput.files?.[0];
       if (file) readImageFile(file, block, el);
       fileInput.value = '';
     };
-  }
+  });
 
   $$('[data-field="document"]', el).forEach((docInput) => {
     docInput.onchange = () => {
@@ -1920,6 +2118,19 @@ function bindBodyInputs(el, block) {
         if (!Number.isFinite(qi) || !Number.isFinite(i) || !block.quizQuestions[qi]) return;
         block.quizQuestions[qi].correct = i;
         persist();
+      };
+    });
+  }
+
+  if (block.type === 'worldmap') {
+    $$('[data-map-pin-label]', el).forEach((input) => {
+      input.oninput = () => {
+        const pin = block.mapPins.find((p) => p.id === input.dataset.mapPinLabel);
+        if (pin) {
+          pin.label = input.value;
+          input.size = Math.max(8, input.value.length + 1);
+          persist();
+        }
       };
     });
   }
@@ -2130,6 +2341,46 @@ function bindBlockEvents(el, block) {
       return;
     }
 
+    if (e.target.closest('[data-action="toggle-map-reveal"]')) {
+      e.preventDefault();
+      e.stopPropagation();
+      block.mapRevealAll = !block.mapRevealAll;
+      syncBlockFooter(el, block);
+      persist();
+      showToast(!block.mapRevealAll ? 'Pin reveal on' : 'Pin reveal off');
+      return;
+    }
+
+    if (e.target.closest('[data-action="reset-map-image"]')) {
+      e.preventDefault();
+      e.stopPropagation();
+      delete block.imageData;
+      delete block.mapImageData;
+      persist();
+      updateBlockElement(el, block);
+      showToast('Default map restored');
+      return;
+    }
+
+    if (e.target.closest('[data-action="map-remove-pin"]')) {
+      e.preventDefault();
+      e.stopPropagation();
+      const btn = e.target.closest('[data-action="map-remove-pin"]');
+      removeWorldMapPin(block, btn.dataset.pinId, el);
+      return;
+    }
+
+    if (
+      block.type === 'worldmap' &&
+      e.target.closest('.worldmap-stage[data-map-add]') &&
+      !e.target.closest('.worldmap-pin')
+    ) {
+      e.preventDefault();
+      e.stopPropagation();
+      addWorldMapPin(block, e.clientX, e.clientY, el);
+      return;
+    }
+
     const pollBtn = e.target.closest('[data-action="poll-add"], [data-action="poll-remove"], [data-action="poll-reset"]');
     if (pollBtn && block.type === 'poll') {
       e.preventDefault();
@@ -2172,7 +2423,7 @@ function bindBlockEvents(el, block) {
 
     if (
       e.target.closest(
-        'input, textarea, [contenteditable], label, a, .block-footer-btn, .doc-upload-btn, .btn-open-whiteboard, .block-poll, .block-quiz'
+        'input, textarea, [contenteditable], label, a, .block-footer-btn, .doc-upload-btn, .btn-open-whiteboard, .block-poll, .block-quiz, .worldmap-pin'
       )
     ) {
       if (selectedId !== block.id) selectBlock(block.id);
@@ -2222,7 +2473,7 @@ function bindBlockEvents(el, block) {
     });
   }
 
-  if (block.type === 'image' || blockAcceptsInlineImage(block)) {
+  if (block.type === 'image' || block.type === 'worldmap' || blockAcceptsInlineImage(block)) {
     el.addEventListener('dragover', (e) => {
       if ([...e.dataTransfer.types].includes('Files')) {
         e.preventDefault();
@@ -2551,6 +2802,391 @@ function clearBlockTypeFields(block) {
   delete block.quizOptions;
   delete block.quizCorrect;
   delete block.quizQuestions;
+  delete block.bloomLevels;
+  delete block.brainBreakCategories;
+  delete block.mapPins;
+  delete block.mapRevealAll;
+  delete block.mapImageData;
+}
+
+function defaultBrainBreakCategories() {
+  return BRAIN_BREAK_DEFAULT.map((cat) => ({
+    name: cat.name,
+    hint: cat.hint,
+    accent: cat.accent,
+    surface: cat.surface,
+    activities: cat.activities.map((a) => ({ title: a.title, detail: a.detail })),
+  }));
+}
+
+function normalizeBrainBreakData(block) {
+  if (block?.type !== 'brainbreak') return;
+  if (!Array.isArray(block.brainBreakCategories) || block.brainBreakCategories.length === 0) {
+    block.brainBreakCategories = defaultBrainBreakCategories();
+    return;
+  }
+  block.brainBreakCategories = block.brainBreakCategories.map((cat, ci) => {
+    const fallback = BRAIN_BREAK_DEFAULT[ci] || BRAIN_BREAK_DEFAULT[0];
+    const activities = Array.isArray(cat.activities) ? cat.activities : [];
+    return {
+      name: cat.name || fallback.name,
+      hint: cat.hint || fallback.hint,
+      accent: cat.accent || fallback.accent,
+      surface: cat.surface || fallback.surface,
+      activities:
+        activities.length > 0
+          ? activities.map((a, ai) => ({
+              title: a.title || fallback.activities[ai]?.title || 'Activity',
+              detail: a.detail || fallback.activities[ai]?.detail || '',
+            }))
+          : fallback.activities.map((a) => ({ ...a })),
+    };
+  });
+}
+
+function flattenBrainBreakActivities(block) {
+  normalizeBrainBreakData(block);
+  const flat = [];
+  block.brainBreakCategories.forEach((cat) => {
+    cat.activities.forEach((act) => {
+      flat.push({
+        category: cat.name,
+        hint: cat.hint,
+        accent: cat.accent,
+        surface: cat.surface,
+        title: act.title,
+        detail: act.detail,
+      });
+    });
+  });
+  return flat;
+}
+
+function getBrainBreakActivityCardHTML(item, { compact = false } = {}) {
+  return `<article class="brainbreak-activity${compact ? ' brainbreak-activity--compact' : ''}">
+      <h4 class="brainbreak-activity-title">${escapeHtml(item.title)}</h4>
+      <p class="brainbreak-activity-detail">${escapeHtml(item.detail)}</p>
+    </article>`;
+}
+
+function getBrainBreakEditorHTML(block) {
+  normalizeBrainBreakData(block);
+  const title = escapeHtml(block.title || '');
+  const sections = block.brainBreakCategories
+    .map(
+      (cat) => `<section class="brainbreak-category" style="--bb-accent:${cat.accent};--bb-surface:${cat.surface}">
+        <header class="brainbreak-category-head">
+          <h3 class="brainbreak-category-name">${escapeHtml(cat.name)}</h3>
+          <p class="brainbreak-category-hint">${escapeHtml(cat.hint)}</p>
+        </header>
+        <div class="brainbreak-activities">${cat.activities.map((a) => getBrainBreakActivityCardHTML(a, { compact: true })).join('')}</div>
+      </section>`
+    )
+    .join('');
+  return `<input class="block-title-input" type="text" value="${title}" placeholder="Brain break" data-field="title" />
+    <p class="brainbreak-board-note">${flattenBrainBreakActivities(block).length} ideas · Present one at a time</p>
+    <div class="block-brainbreak">${sections}</div>`;
+}
+
+function brainBreakHasMorePresentSteps(block) {
+  const flat = flattenBrainBreakActivities(block);
+  return presentBrainBreakIndex < flat.length - 1;
+}
+
+function getPresentBrainBreakRevealHintHTML(block) {
+  if (!brainBreakHasMorePresentSteps(block)) return '';
+  return '<p class="present-reveal-hint">Click or press Space for next brain break</p>';
+}
+
+function getBrainBreakPresentHTML(block) {
+  const flat = flattenBrainBreakActivities(block);
+  const i = Math.min(presentBrainBreakIndex, Math.max(0, flat.length - 1));
+  const item = flat[i];
+  const progress = `<p class="present-brainbreak-progress">Break ${i + 1} of ${flat.length}</p>`;
+  const category = `<p class="present-brainbreak-category" style="--bb-accent:${item.accent}">${escapeHtml(item.category)}</p>`;
+  const body = `<div class="present-brainbreak-card" style="--bb-accent:${item.accent};--bb-surface:${item.surface}">
+      <h2 class="present-brainbreak-title">${escapeHtml(item.title)}</h2>
+      <p class="present-brainbreak-detail">${escapeHtml(item.detail)}</p>
+    </div>`;
+  return `${progress}${category}${body}${getPresentBrainBreakRevealHintHTML(block)}`;
+}
+
+function ensurePresentBrainBreakState(block) {
+  if (!block || block.type !== 'brainbreak') {
+    presentBrainBreakRevealBlockId = null;
+    presentBrainBreakIndex = 0;
+    return;
+  }
+  if (block.id !== presentBrainBreakRevealBlockId) {
+    presentBrainBreakRevealBlockId = block.id;
+    presentBrainBreakIndex = 0;
+  }
+  const total = flattenBrainBreakActivities(block).length;
+  if (presentBrainBreakIndex >= total) presentBrainBreakIndex = Math.max(0, total - 1);
+}
+
+const WORLD_MAP_ASSET = 'assets/world-map.jpg';
+const WORLD_MAP_ASSET_2X = 'assets/world-map@2x.jpg';
+const WORLD_MAP_WIDTH = 1024;
+const WORLD_MAP_HEIGHT = 512;
+
+const MAP_PIN_SVG = `<svg class="worldmap-pin-marker" viewBox="0 0 24 32" width="28" height="37" aria-hidden="true" focusable="false">
+  <path fill="#e53935" d="M12 0C5.4 0 0 5.4 0 12c0 9 12 20 12 20s12-11 12-20C24 5.4 18.6 0 12 0z"/>
+  <circle cx="12" cy="11" r="5" fill="#fff"/>
+</svg>`;
+
+function getWorldMapAssetUrl(path = WORLD_MAP_ASSET) {
+  try {
+    return new URL(path, document.baseURI).href;
+  } catch {
+    return path;
+  }
+}
+
+function getWorldMapMapSrc(block) {
+  if (block?.type !== 'worldmap') return null;
+  return block.imageData || block.mapImageData || null;
+}
+
+function getWorldMapImgHTML(block) {
+  const custom = getWorldMapMapSrc(block);
+  if (custom) {
+    return `<img class="worldmap-img" src="${custom}" alt="World map" draggable="false" />`;
+  }
+  const src = getWorldMapAssetUrl();
+  const src2x = getWorldMapAssetUrl(WORLD_MAP_ASSET_2X);
+  const srcset = `${src} ${WORLD_MAP_WIDTH}w, ${src2x} ${WORLD_MAP_WIDTH * 2}w`;
+  return `<img class="worldmap-img worldmap-img--bundled" src="${escapeAttr(src2x)}" srcset="${escapeAttr(srcset)}" sizes="(max-width: 900px) 90vw, 1400px" alt="World map" draggable="false" decoding="async" />`;
+}
+
+function normalizeWorldMapData(block) {
+  if (block?.type !== 'worldmap') return;
+  if (block.mapImageData && !block.imageData) {
+    block.imageData = block.mapImageData;
+    delete block.mapImageData;
+  }
+  if (!Array.isArray(block.mapPins)) block.mapPins = [];
+  block.mapPins = block.mapPins
+    .filter((p) => p && typeof p === 'object')
+    .map((p) => ({
+      id: p.id || uid(),
+      x: Math.max(0, Math.min(100, Number(p.x) || 0)),
+      y: Math.max(0, Math.min(100, Number(p.y) || 0)),
+      label: typeof p.label === 'string' ? p.label : 'Pin',
+    }));
+}
+
+function getMapPinIconHTML() {
+  return MAP_PIN_SVG;
+}
+
+function getWorldMapPinMarkup(pin, { present = false } = {}) {
+  const label = escapeHtml(pin.label || 'Pin');
+  const labelHtml = present
+    ? `<span class="worldmap-pin-label">${label}</span>`
+    : `<input type="text" class="worldmap-pin-label" value="${label}" data-map-pin-label="${escapeAttr(pin.id)}" placeholder="Label…" size="${Math.max(8, (pin.label || 'Pin').length + 1)}" />`;
+  const removeBtn = present
+    ? ''
+    : `<button type="button" class="worldmap-pin-remove" data-action="map-remove-pin" data-pin-id="${escapeAttr(pin.id)}" aria-label="Remove pin">×</button>`;
+  return `<div class="worldmap-pin" style="left:${pin.x}%;top:${pin.y}%" data-pin-id="${escapeAttr(pin.id)}">
+      <div class="worldmap-pin-body">
+        <div class="worldmap-pin-label-wrap">
+          ${labelHtml}
+          ${removeBtn}
+        </div>
+        ${getMapPinIconHTML()}
+      </div>
+    </div>`;
+}
+
+/** Map click position → % along the visible map image (not the letterboxed stage). */
+function clientToMapPercent(stage, clientX, clientY) {
+  const img = $('.worldmap-img', stage);
+  if (!img) return null;
+  const rect = img.getBoundingClientRect();
+  if (rect.width < 1 || rect.height < 1) return null;
+  return {
+    x: Math.round(Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100)) * 10) / 10,
+    y: Math.round(Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100)) * 10) / 10,
+  };
+}
+
+function getWorldMapStageHTML(block, { present = false, visiblePinCount } = {}) {
+  normalizeWorldMapData(block);
+  const pins = block.mapPins;
+  const showCount =
+    present && worldMapUsesRevealInPresent(block) && Number.isFinite(visiblePinCount)
+      ? Math.max(0, Math.min(visiblePinCount, pins.length))
+      : pins.length;
+  const pinHtml = pins
+    .slice(0, showCount)
+    .map((pin) => getWorldMapPinMarkup(pin, { present }))
+    .join('');
+  const addAttr = present ? '' : ' data-map-add="1"';
+  const hint = present
+    ? ''
+    : '<p class="worldmap-hint">Click map to add a pin</p>';
+  const mapWrapClass = present ? 'worldmap-map-fit' : 'block-image-wrap worldmap-map-wrap';
+  return `${hint}<div class="worldmap-stage"${addAttr}>
+      <div class="${mapWrapClass}">
+        <div class="worldmap-visual">
+          ${getWorldMapImgHTML(block)}
+          <div class="worldmap-pins">${pinHtml}</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function getWorldMapEditorHTML(block) {
+  const title = escapeHtml(block.title || '');
+  normalizeWorldMapData(block);
+  return `<input class="block-title-input" type="text" value="${title}" placeholder="World map" data-field="title" />
+    ${getWorldMapStageHTML(block)}`;
+}
+
+function worldMapUsesRevealInPresent(block) {
+  normalizeWorldMapData(block);
+  return block?.type === 'worldmap' && !block.mapRevealAll && block.mapPins.length > 1;
+}
+
+function getMapRevealFooterHTML(block) {
+  const on = !block.mapRevealAll;
+  return `<div class="block-footer-reveal" title="${on ? 'Reveal pins one at a time in Present' : 'Show all pins at once in Present'}">
+    <span class="block-footer-reveal-label">Pin reveal</span>
+    <button type="button" class="block-footer-toggle${on ? ' is-on' : ''}" role="switch" aria-checked="${on ? 'true' : 'false'}" aria-label="Pin reveal in Present" data-action="toggle-map-reveal">
+      <span class="block-footer-toggle-track" aria-hidden="true"><span class="block-footer-toggle-thumb"></span></span>
+    </button>
+  </div>`;
+}
+
+function getPresentMapRevealHintHTML(block) {
+  if (!worldMapUsesRevealInPresent(block)) return '';
+  const total = block.mapPins.length;
+  if (presentMapPinCount >= total) return '';
+  return '<p class="present-reveal-hint">Click or press Space for next pin</p>';
+}
+
+function getWorldMapPresentHTML(block) {
+  normalizeWorldMapData(block);
+  const total = block.mapPins.length;
+  const show =
+    worldMapUsesRevealInPresent(block) && total > 0
+      ? Math.max(1, Math.min(presentMapPinCount, total))
+      : total;
+  const progress =
+    worldMapUsesRevealInPresent(block) && total > 1
+      ? `<p class="present-worldmap-progress">Pin ${show} of ${total}</p>`
+      : '';
+  return `${progress}${getWorldMapStageHTML(block, { present: true, visiblePinCount: show })}${getPresentMapRevealHintHTML(block)}`;
+}
+
+function ensurePresentMapPinState(block) {
+  if (!block || block.type !== 'worldmap') {
+    presentMapRevealBlockId = null;
+    presentMapPinCount = 0;
+    return;
+  }
+  if (!worldMapUsesRevealInPresent(block)) {
+    presentMapRevealBlockId = null;
+    presentMapPinCount = 0;
+    return;
+  }
+  if (block.id !== presentMapRevealBlockId) {
+    presentMapRevealBlockId = block.id;
+    presentMapPinCount = 1;
+  }
+  const total = block.mapPins.length;
+  if (presentMapPinCount > total) presentMapPinCount = total;
+  if (presentMapPinCount < 1 && total > 0) presentMapPinCount = 1;
+}
+
+function addWorldMapPin(block, clientX, clientY, el) {
+  normalizeWorldMapData(block);
+  const stage = $('.worldmap-stage[data-map-add]', el);
+  if (!stage) return;
+  const pos = clientToMapPercent(stage, clientX, clientY);
+  if (!pos) return;
+  block.mapPins.push({
+    id: uid(),
+    x: pos.x,
+    y: pos.y,
+    label: 'New pin',
+  });
+  persist();
+  updateBlockElement(el, block);
+  showToast('Pin added');
+}
+
+function removeWorldMapPin(block, pinId, el) {
+  normalizeWorldMapData(block);
+  const before = block.mapPins.length;
+  block.mapPins = block.mapPins.filter((p) => p.id !== pinId);
+  if (block.mapPins.length === before) return;
+  persist();
+  updateBlockElement(el, block);
+  showToast('Pin removed');
+}
+
+function defaultBloomLevels() {
+  return BLOOM_LEVELS_DEFAULT.map((level) => ({
+    name: level.name,
+    description: level.description,
+    verbs: [...level.verbs],
+    header: level.header,
+    surface: level.surface,
+    label: level.label,
+  }));
+}
+
+function normalizeBloomData(block) {
+  if (block?.type !== 'bloom') return;
+  if (!Array.isArray(block.bloomLevels) || block.bloomLevels.length === 0) {
+    block.bloomLevels = defaultBloomLevels();
+    return;
+  }
+  block.bloomLevels = block.bloomLevels.map((level, i) => {
+    const fallback = BLOOM_LEVELS_DEFAULT[i] || BLOOM_LEVELS_DEFAULT[0];
+    return {
+      name: level.name || fallback.name,
+      description: level.description || fallback.description,
+      verbs: Array.isArray(level.verbs) && level.verbs.length ? [...level.verbs] : [...fallback.verbs],
+      header: level.header || fallback.header,
+      surface: level.surface || fallback.surface,
+      label: level.label || fallback.label,
+    };
+  });
+}
+
+function formatBloomVerbs(verbs) {
+  return (verbs || []).map((v) => escapeHtml(v)).join(' · ');
+}
+
+function getBloomLevelHTML(level, { present = false } = {}) {
+  const name = escapeHtml(level.name || '');
+  const desc = escapeHtml(level.description || '');
+  const verbs = formatBloomVerbs(level.verbs);
+  const cls = present ? 'bloom-level bloom-level--present' : 'bloom-level';
+  return `<div class="${cls}" style="--bloom-header:${level.header};--bloom-surface:${level.surface};--bloom-label:${level.label}">
+      <div class="bloom-level-pyramid" aria-hidden="true"><span>${name.toUpperCase()}</span></div>
+      <div class="bloom-level-panel">
+        <p class="bloom-level-desc">${desc}</p>
+        <p class="bloom-level-verbs">${verbs}</p>
+      </div>
+    </div>`;
+}
+
+function getBloomEditorHTML(block) {
+  normalizeBloomData(block);
+  const title = escapeHtml(block.title || '');
+  const levels = block.bloomLevels.map((level) => getBloomLevelHTML(level)).join('');
+  return `<input class="block-title-input" type="text" value="${title}" placeholder="Bloom's taxonomy" data-field="title" />
+    <div class="block-bloom">${levels}</div>`;
+}
+
+function getBloomPresentHTML(block) {
+  normalizeBloomData(block);
+  const levels = block.bloomLevels.map((level) => getBloomLevelHTML(level, { present: true })).join('');
+  return `<div class="present-bloom">${levels}</div>`;
 }
 
 function defaultPollOptions() {
@@ -2810,6 +3446,12 @@ function ensurePresentQuizState(block) {
 function applyBlockTypeDefaults(block, type) {
   const prevType = block.type;
   const prevImage = block.imageData;
+  const prevMapImage = block.mapImageData;
+  const prevMapPins =
+    prevType === 'worldmap' && Array.isArray(block.mapPins)
+      ? block.mapPins.map((p) => ({ ...p }))
+      : null;
+  const carriedMapImage = prevImage || prevMapImage || null;
   const prevListRevealAll = prevType === 'list' && type === 'list' ? block.listRevealAll : false;
   const carryToWhiteboard =
     type === 'whiteboard' && !block.blankContent
@@ -2845,6 +3487,9 @@ function applyBlockTypeDefaults(block, type) {
     if (block.w < 340) block.w = 360;
   } else if (type === 'image') {
     if (block.h < 220) block.h = 280;
+    if (carriedMapImage && (prevType === 'worldmap' || prevType === 'image')) {
+      block.imageData = carriedMapImage;
+    }
   } else if (type === 'document') {
     if (block.w < 340) block.w = 360;
     if (block.h < 280) block.h = 320;
@@ -2857,6 +3502,24 @@ function applyBlockTypeDefaults(block, type) {
     block.pollVotes = block.pollOptions.map(() => 0);
     if (block.w < 320) block.w = 340;
     if (block.h < 260) block.h = 300;
+  } else if (type === 'bloom') {
+    block.bloomLevels = defaultBloomLevels();
+    if (!block.title) block.title = "Bloom's taxonomy";
+    if (block.w < 380) block.w = 400;
+    if (block.h < 520) block.h = 560;
+  } else if (type === 'brainbreak') {
+    block.brainBreakCategories = defaultBrainBreakCategories();
+    if (!block.title) block.title = 'Brain break';
+    if (block.w < 380) block.w = 400;
+    if (block.h < 480) block.h = 520;
+  } else if (type === 'worldmap') {
+    block.mapPins = prevMapPins || [];
+    if (!block.title) block.title = 'World map';
+    if (block.w < 600) block.w = 640;
+    if (block.h < 360) block.h = 380;
+    if (carriedMapImage && (prevType === 'worldmap' || prevType === 'image')) {
+      block.imageData = carriedMapImage;
+    }
   } else if (type === 'sticky') {
     block.content = carryToSticky?.replace(/<[^>]+>/g, '').trim()
       ? carryToSticky
@@ -3000,9 +3663,11 @@ function addBlock(type) {
     w:
       type === 'sticky'
         ? 220
-        : type === 'heading' || type === 'whiteboard'
-          ? 360
-          : 320,
+        : type === 'worldmap'
+          ? 640
+          : type === 'heading' || type === 'whiteboard'
+            ? 360
+            : 320,
     h:
       type === 'image'
         ? 280
@@ -3014,7 +3679,13 @@ function addBlock(type) {
               ? 220
               : type === 'poll'
                 ? 300
-                : type === 'quiz'
+                : type === 'bloom'
+                  ? 560
+                  : type === 'brainbreak'
+                    ? 520
+                    : type === 'worldmap'
+                      ? 380
+                      : type === 'quiz'
                   ? 320
                   : type === 'sticky'
                     ? 130
@@ -3094,7 +3765,7 @@ function getClipboardImageFile(clipboardData) {
 }
 
 function blockAcceptsImagePaste(block) {
-  return !!block && (block.type === 'image' || blockAcceptsInlineImage(block));
+  return !!block && (block.type === 'image' || block.type === 'worldmap' || blockAcceptsInlineImage(block));
 }
 
 function shouldHandleDocumentImagePaste(e) {
@@ -3132,12 +3803,21 @@ function readImageFile(file, block, el) {
   const reader = new FileReader();
   reader.onload = () => {
     block.imageData = reader.result;
+    delete block.mapImageData;
+    selectedId = block.id;
+    if (block.type === 'worldmap') {
+      if (block.w < 600) block.w = 640;
+      if (block.h < 360) block.h = 380;
+      persist();
+      updateBlockElement(el, block);
+      showToast('Map image updated');
+      return;
+    }
     if (blockAcceptsInlineImage(block) && block.h < 300) {
       block.h = Math.max(block.h, 300);
     }
-    selectedId = block.id;
-    render();
     persist();
+    render();
     showToast(blockAcceptsInlineImage(block) ? 'Image added to card' : 'Image added');
   };
   reader.onerror = () => showToast('Could not read image');
@@ -3223,6 +3903,10 @@ function openPresent(blockId) {
   presentQuizQuestionIndex = 0;
   presentQuizQuestionAnswered = false;
   presentQuizPickedIndex = null;
+  presentBrainBreakRevealBlockId = null;
+  presentBrainBreakIndex = 0;
+  presentMapRevealBlockId = null;
+  presentMapPinCount = 1;
   presentExpanded = false;
   presentOverlay.hidden = false;
   document.body.style.overflow = 'hidden';
@@ -3253,6 +3937,8 @@ async function renderPresent() {
 
   ensurePresentRevealState(block);
   ensurePresentQuizState(block);
+  ensurePresentBrainBreakState(block);
+  ensurePresentMapPinState(block);
 
   if (block.type === 'document' && isDocxDocument(block) && block.docData && !block.docPreviewHtml) {
     presentStage.innerHTML =
@@ -3273,6 +3959,8 @@ async function renderPresent() {
   bindPresentPoll();
   bindPresentQuiz();
   bindPresentQuizReveal();
+  bindPresentBrainBreakReveal();
+  bindPresentWorldMapReveal();
   presentCounter.textContent = `${presentIndex + 1} / ${blocks.length}`;
 }
 
@@ -3332,6 +4020,12 @@ function getPresentHTML(block, { showTitle = true } = {}) {
       );
     case 'poll':
       return title + getPollPresentHTML(block);
+    case 'bloom':
+      return title + getBloomPresentHTML(block);
+    case 'brainbreak':
+      return title + getBrainBreakPresentHTML(block);
+    case 'worldmap':
+      return title + getWorldMapPresentHTML(block);
     case 'quiz':
       return title + getQuizPresentHTML(block);
     case 'sticky':
@@ -3374,6 +4068,19 @@ function presentAdvance() {
     renderPresent();
     return;
   }
+  if (block?.type === 'brainbreak' && brainBreakHasMorePresentSteps(block)) {
+    presentBrainBreakIndex += 1;
+    renderPresent();
+    return;
+  }
+  if (block?.type === 'worldmap' && worldMapUsesRevealInPresent(block)) {
+    const total = block.mapPins.length;
+    if (presentMapPinCount < total) {
+      presentMapPinCount += 1;
+      renderPresent();
+      return;
+    }
+  }
   presentNext();
 }
 
@@ -3399,6 +4106,16 @@ function presentRetreat() {
       renderPresent();
       return;
     }
+  }
+  if (block?.type === 'brainbreak' && presentBrainBreakIndex > 0) {
+    presentBrainBreakIndex -= 1;
+    renderPresent();
+    return;
+  }
+  if (block?.type === 'worldmap' && worldMapUsesRevealInPresent(block) && presentMapPinCount > 1) {
+    presentMapPinCount -= 1;
+    renderPresent();
+    return;
   }
   presentPrev();
 }
@@ -3462,6 +4179,30 @@ function bindPresentQuizReveal() {
   });
 }
 
+function bindPresentBrainBreakReveal() {
+  const block = getPresentBlocks()[presentIndex];
+  if (block?.type !== 'brainbreak') return;
+  const card = $('.present-card', presentStage);
+  if (!card) return;
+  card.addEventListener('click', (e) => {
+    if (e.target.closest('.present-expand, .present-nav, a, button')) return;
+    if (brainBreakHasMorePresentSteps(block)) presentAdvance();
+  });
+}
+
+function bindPresentWorldMapReveal() {
+  const block = getPresentBlocks()[presentIndex];
+  if (!worldMapUsesRevealInPresent(block)) return;
+  const total = block.mapPins.length;
+  if (presentMapPinCount >= total) return;
+  const card = $('.present-card', presentStage);
+  if (!card) return;
+  card.addEventListener('click', (e) => {
+    if (e.target.closest('.present-expand, .present-nav, a, button')) return;
+    if (presentMapPinCount < total) presentAdvance();
+  });
+}
+
 function bindPresentListReveal() {
   const block = getPresentBlocks()[presentIndex];
   if (!listUsesRevealInPresent(block)) return;
@@ -3517,6 +4258,15 @@ function getBlockOutlineLabel(block) {
     const first = block.pollOptions?.[0]?.trim();
     if (first) return first.slice(0, 48);
   }
+  if (block.type === 'worldmap') {
+    normalizeWorldMapData(block);
+    const n = block.mapPins.length;
+    if (n > 0) {
+      const first = block.mapPins[0].label?.trim();
+      const suffix = n > 1 ? ` (${n} pins)` : '';
+      return ((first || 'World map') + suffix).slice(0, 48);
+    }
+  }
   if (block.type === 'quiz') {
     const questions = getQuizQuestions(block);
     const firstQ = questions[0]?.question?.trim();
@@ -3539,6 +4289,9 @@ function getBlockOutlineLabel(block) {
     timer: 'Timer',
     poll: 'Poll',
     quiz: 'Quiz',
+    bloom: "Bloom's taxonomy",
+    brainbreak: 'Brain break',
+    worldmap: 'World map',
     sticky: 'Sticky',
     whiteboard: 'Whiteboard',
   };
