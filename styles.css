@@ -3059,12 +3059,54 @@ body {
   margin-bottom: 0;
 }
 
-.present-body--text li.present-reveal-hidden {
-  display: none;
+/* Bullet reveal: reserve space for all items; only fade visibility in */
+.present-card--list-reveal .present-body--text li {
+  transition: opacity 0.2s ease;
+}
+
+.present-card--list-reveal .present-body--text li.present-reveal-hidden {
+  visibility: hidden;
+  opacity: 0;
 }
 
 .present-card--list-reveal {
   cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.present-card--list-reveal .present-card-title {
+  flex: 0 0 auto;
+}
+
+.present-card--list-reveal .present-body--text {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.present-card--list-reveal .present-reveal-hint {
+  flex: 0 0 auto;
+  min-height: 1.35em;
+}
+
+.present-reveal-hint--hidden {
+  visibility: hidden;
+  opacity: 0;
+}
+
+.present-stage--expanded .present-card--list-reveal {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+
+.present-stage--expanded .present-card--list-reveal .present-body--text {
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-shrink: 1;
 }
 
 .present-reveal-hint {

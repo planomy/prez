@@ -6,6 +6,27 @@
   const BG_PAPER = 'linear-gradient(180deg, #f7f5f0 0%, #e8e4dc 100%)';
   const BG_TWILIGHT = 'linear-gradient(180deg, #312e81 0%, #be185d 50%, #f97316 100%)';
   const BG_FOREST = 'linear-gradient(135deg, #134e4a 0%, #065f46 50%, #047857 100%)';
+  const BG_STEM_MATH = 'linear-gradient(160deg, #0c4a6e 0%, #0369a1 42%, #7dd3fc 100%)';
+  const BG_STEM_SCI = 'linear-gradient(160deg, #14532d 0%, #15803d 38%, #bbf7d0 100%)';
+
+  const INVESTIGATION_RESULTS_TABLE = `<table class="block-table">
+    <thead><tr><th>Trial</th><th>Result (with units)</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td contenteditable="true">—</td></tr>
+      <tr><td>2</td><td contenteditable="true">—</td></tr>
+      <tr><td>3</td><td contenteditable="true">—</td></tr>
+      <tr><td>Average</td><td contenteditable="true">—</td></tr>
+    </tbody>
+  </table>`;
+
+  const PSMT_WORKING_TABLE = `<table class="block-table">
+    <thead><tr><th>Step</th><th>Working (show calculations)</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td contenteditable="true">—</td></tr>
+      <tr><td>2</td><td contenteditable="true">—</td></tr>
+      <tr><td>3</td><td contenteditable="true">—</td></tr>
+    </tbody>
+  </table>`;
 
   function templateImage(key) {
     return window.PREZ_TEMPLATE_IMAGES?.[key] || '';
@@ -1082,6 +1103,307 @@
             '<strong>Option 4:</strong> Identify whether the source is more useful for information, perspective or context.',
           ]),
           h: 260,
+        },
+      ],
+    },
+    {
+      id: 'psmt-builder',
+      name: 'PSMT Builder',
+      description:
+        '10 cards in lesson order: understand a real-world problem, plan the maths, solve, interpret, justify, and communicate a recommendation (Years 7–9 modelling).',
+      tag: 'New',
+      category: 'STEM',
+      board: {
+        title: 'PSMT Builder',
+        background: BG_STEM_MATH,
+        layoutMode: 'rows',
+      },
+      blockSpecs: [
+        {
+          type: 'heading',
+          accent: 'ocean',
+          title: 'PSMT Builder: Solve a Real-World Maths Problem',
+          content: note(
+            '<p><strong>Focus:</strong> Mathematical modelling — not just calculating, but explaining and justifying your thinking.</p><p><em>Teacher line: A PSMT is not just “do the maths”. It is: understand the problem, choose the maths, solve it, explain it, and justify it.</em></p>'
+          ),
+          h: 200,
+        },
+        {
+          type: 'note',
+          accent: 'mint',
+          title: '1. Understand the problem',
+          content: note(
+            '<p><strong>What is the real-world situation?</strong></p><p>Describe the context in your own words.</p><p><strong>What are you being asked to find, decide or recommend?</strong></p><p>State the question clearly — e.g. “How many…?”, “What is the best…?”, “Should we…?”</p>'
+          ),
+          h: 260,
+        },
+        {
+          type: 'note',
+          accent: 'teal',
+          title: '2. Given information',
+          content: note(
+            '<p>List all numbers, units, prices, measurements, conditions and rules you are given.</p><ul><li>Include units (m, kg, $, %, hours…)</li><li>Note anything missing that you may need to assume</li></ul>'
+          ),
+          h: 240,
+        },
+        {
+          type: 'note',
+          accent: 'gold',
+          title: '3. Assumptions',
+          content: note(
+            '<p>What will you assume to make the problem workable?</p><ul><li>Assume prices stay the same.</li><li>Assume each person eats one serve.</li><li>Assume travel time does not change.</li></ul><p><em>Add your own assumptions for this task.</em></p>'
+          ),
+          h: 260,
+        },
+        {
+          type: 'note',
+          accent: 'violet',
+          title: '4. Variables',
+          content: note(
+            '<p>What quantities can change? Name each variable and what it represents.</p><ul><li>number of people</li><li>cost per item</li><li>distance · time · percentage discount</li></ul>'
+          ),
+          h: 220,
+        },
+        {
+          type: 'list',
+          accent: 'coral',
+          title: '5. Mathematical plan',
+          content: list([
+            'What maths will you use? (circle or note all that apply)',
+            'Percentage · ratio · rate · area · volume',
+            'Average · table · graph · equation',
+            'In one sentence: I will use ________ because ________.',
+          ]),
+          h: 240,
+        },
+        {
+          type: 'table',
+          accent: 'ocean-p',
+          title: '6. Solve / calculate',
+          tableHtml: PSMT_WORKING_TABLE,
+          h: 280,
+        },
+        {
+          type: 'note',
+          accent: 'rose',
+          title: '7. Interpret the answer',
+          content: note(
+            '<p>What does your numerical answer mean in the <strong>real-world situation</strong>?</p><p>Write in full sentences — not just the number.</p><p><em>e.g. “This means the school needs about 24 trays of food for the camp.”</em></p>'
+          ),
+          h: 220,
+        },
+        {
+          type: 'note',
+          accent: 'mint-p',
+          title: '8. Justify choices',
+          content: note(
+            '<p><strong>Why was this method reasonable?</strong></p><p><strong>Why is your solution suitable</strong> for the question asked?</p><p>Mention assumptions, units, and whether your answer is sensible (too big? too small?).</p>'
+          ),
+          h: 240,
+        },
+        {
+          type: 'note',
+          accent: 'slate',
+          title: '9. Final recommendation',
+          content: note(
+            '<p>Give your <strong>final answer in words</strong> — a clear recommendation or decision for someone in the real situation.</p><p><em>Stems: “I recommend… because…” · “The best option is… since…”</em></p>'
+          ),
+          h: 220,
+        },
+      ],
+    },
+    {
+      id: 'investigation-report',
+      name: 'Practical investigation report',
+      description:
+        '11 cards: research question, variables, method, results table, graph, analysis, and evaluation — scaffolded scientific report writing.',
+      tag: 'New',
+      category: 'STEM',
+      board: {
+        title: 'Practical investigation report',
+        background: BG_STEM_SCI,
+        layoutMode: 'rows',
+      },
+      blockSpecs: [
+        {
+          type: 'heading',
+          accent: 'slate',
+          title: 'Practical investigation report',
+          content: note(
+            '<p><strong>Investigation title:</strong> What are we testing?</p><p><em>Teacher line: Science writing is not just “what we did”. It is “what the evidence shows”.</em></p>'
+          ),
+          h: 200,
+        },
+        {
+          type: 'note',
+          accent: 'mint',
+          title: 'Research question',
+          content: note(
+            '<p>What question are we trying to answer?</p><p><em>Example: How does the amount of sunlight affect plant growth?</em></p>'
+          ),
+          h: 200,
+        },
+        {
+          type: 'note',
+          accent: 'teal',
+          title: 'Hypothesis / prediction',
+          content: note(
+            '<p><strong>If</strong> ________ changes, <strong>then</strong> ________ will happen <strong>because</strong> ________.</p><p>State what you expect and the science behind your prediction.</p>'
+          ),
+          h: 220,
+        },
+        {
+          type: 'list',
+          accent: 'gold',
+          title: 'Variables',
+          content: list([
+            'Independent variable (what we change):',
+            'Dependent variable (what we measure, with units):',
+            'Controlled variables (what we keep the same):',
+            'Controlled variables (continued):',
+          ]),
+          h: 260,
+        },
+        {
+          type: 'note',
+          accent: 'violet',
+          title: 'Materials and safety',
+          content: note(
+            '<p><strong>Equipment needed:</strong></p><ul><li></li><li></li></ul><p><strong>Safety:</strong> List risks and how you will manage them (PPE, supervision, handling…).</p>'
+          ),
+          h: 260,
+        },
+        {
+          type: 'list',
+          accent: 'coral',
+          title: 'Method',
+          listRevealAll: false,
+          content: list([
+            'Step 1 —',
+            'Step 2 —',
+            'Step 3 —',
+            'Step 4 —',
+            'Step 5 —',
+            'Write clearly enough for someone else to repeat the investigation.',
+          ]),
+          h: 280,
+        },
+        {
+          type: 'table',
+          accent: 'ocean',
+          title: 'Results table',
+          tableHtml: INVESTIGATION_RESULTS_TABLE,
+          h: 260,
+        },
+        {
+          type: 'note',
+          accent: 'ocean-p',
+          title: 'Graph / representation',
+          content: note(
+            '<p>Insert a <strong>graph, diagram, labelled drawing or photo</strong> of your results (use image on this card or sketch on whiteboard).</p><p>Label axes, units, and title. State what type of graph you chose and why.</p>'
+          ),
+          h: 220,
+        },
+        {
+          type: 'list',
+          accent: 'rose',
+          title: 'Analysis',
+          listRevealAll: false,
+          content: list([
+            'The data shows…',
+            'As ________ increased, ________…',
+            'The pattern suggests…',
+            'One unusual result was…',
+            'Link your evidence to the research question.',
+          ]),
+          h: 260,
+        },
+        {
+          type: 'list',
+          accent: 'mint-p',
+          title: 'Evaluation / conclusion',
+          content: list([
+            'Answer the research question in a full sentence.',
+            'Was the hypothesis supported? Explain using evidence.',
+            'Was the test fair? What made it fair or unfair?',
+            'Errors or limitations that affected the result:',
+            'How could the investigation be improved next time?',
+          ]),
+          h: 280,
+        },
+      ],
+    },
+    {
+      id: 'fair-test-planner',
+      name: 'Fair test planner',
+      description:
+        '6 cards to plan before a prac: question, variables, method, safety, and prediction — use Present to reveal method steps.',
+      category: 'STEM',
+      board: {
+        title: 'Fair test planner',
+        background: BG_STEM_SCI,
+        layoutMode: 'rows',
+      },
+      blockSpecs: [
+        {
+          type: 'heading',
+          accent: 'teal',
+          title: 'Fair test planner',
+          content: note(
+            '<p>Plan your investigation <strong>before</strong> you start. A fair test changes only one variable at a time.</p>'
+          ),
+          h: 180,
+        },
+        {
+          type: 'note',
+          accent: 'mint',
+          title: 'Research question',
+          content: note(
+            '<p>What are you trying to find out?</p><p><em>How does ________ affect ________?</em></p>'
+          ),
+          h: 200,
+        },
+        {
+          type: 'list',
+          accent: 'gold',
+          title: 'Variables',
+          content: list([
+            'Independent variable (what I will change):',
+            'Dependent variable (what I will measure, with units):',
+            'Controlled variables (what I will keep the same):',
+          ]),
+          h: 240,
+        },
+        {
+          type: 'list',
+          accent: 'violet',
+          title: 'Method',
+          listRevealAll: false,
+          content: list([
+            'Step 1 —',
+            'Step 2 —',
+            'Step 3 —',
+            'Step 4 —',
+          ]),
+          h: 240,
+        },
+        {
+          type: 'note',
+          accent: 'coral',
+          title: 'Safety',
+          content: note(
+            '<p><strong>Risks:</strong></p><ul><li></li></ul><p><strong>How we stay safe:</strong> PPE, supervision, careful handling…</p>'
+          ),
+          h: 220,
+        },
+        {
+          type: 'note',
+          accent: 'ocean',
+          title: 'Prediction',
+          content: note(
+            '<p><strong>If</strong> ________ changes, <strong>then</strong> ________ will happen <strong>because</strong> ________.</p>'
+          ),
+          h: 200,
         },
       ],
     },

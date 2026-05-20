@@ -1547,8 +1547,11 @@ function ensurePresentRevealState(block) {
 function getPresentListRevealHintHTML(block) {
   if (!listUsesRevealInPresent(block)) return '';
   const total = countListItemsInContent(block.content);
-  if (total <= 1 || presentListRevealCount >= total) return '';
-  return '<p class="present-reveal-hint">Click or press Space for next bullet</p>';
+  if (total <= 1) return '';
+  const done = presentListRevealCount >= total;
+  const hiddenCls = done ? ' present-reveal-hint--hidden' : '';
+  const aria = done ? ' aria-hidden="true"' : '';
+  return `<p class="present-reveal-hint${hiddenCls}"${aria}>Click or press Space for next bullet</p>`;
 }
 
 function updateBlockElement(el, block) {
@@ -4339,6 +4342,7 @@ async function renderPresent() {
   setPresentExpanded(presentExpanded);
   bindPresentExpand();
   bindPresentListReveal();
+  focusPresentListReveal();
   bindPresentPoll();
   bindPresentQuiz();
   bindPresentQuizReveal();
@@ -4604,6 +4608,19 @@ function bindPresentWorldMapReveal() {
     if (e.target.closest('.present-expand, .present-nav, a, button')) return;
     if (isPresentTypingTarget(e.target)) return;
     if (presentMapPinCount < total) presentAdvance();
+  });
+}
+
+function focusPresentListReveal() {
+  const block = getPresentBlocks()[presentIndex];
+  if (!listUsesRevealInPresent(block)) return;
+  requestAnimationFrame(() => {
+    const card = presentStage?.querySelector('.present-card--list-reveal');
+    const scrollEl = card?.querySelector('.present-body--text');
+    if (!scrollEl) return;
+    const visible = scrollEl.querySelectorAll('li:not(.present-reveal-hidden)');
+    const target = visible.length ? visible[visible.length - 1] : null;
+    if (target) target.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   });
 }
 
