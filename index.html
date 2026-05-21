@@ -334,7 +334,14 @@
     <button type="button" id="presentPrev" class="present-nav present-prev" aria-label="Previous">‹</button>
     <button type="button" id="presentNext" class="present-nav present-next" aria-label="Next">›</button>
     <div class="present-stage" id="presentStage"></div>
-    <div class="present-counter" id="presentCounter"></div>
+    <div class="present-footer" id="presentFooter">
+      <div id="presentTimer" class="present-timer" hidden aria-live="polite" aria-label="Lesson timer">
+        <span class="present-timer-display" id="presentTimerDisplay">5:00</span>
+        <button type="button" id="presentTimerPause" class="btn btn-ghost btn-sm">Pause</button>
+        <button type="button" id="presentTimerReset" class="btn btn-ghost btn-sm">Reset</button>
+      </div>
+      <div class="present-counter" id="presentCounter"></div>
+    </div>
   </div>
 
   <input type="file" id="fileInput" accept=".json,application/json,.prez.json" hidden />

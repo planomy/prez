@@ -324,6 +324,19 @@ const BRAIN_BREAK_DEFAULT = [
   },
 ];
 
+const TEXT_CARD_TYPES = new Set(['heading', 'note', 'list']);
+const TEXT_CARD_ALIGNS = ['left', 'center', 'right'];
+const TEXT_CARD_SIZES = ['sm', 'md', 'lg'];
+const TEXT_CARD_ALIGN_LABELS = { left: 'Left', center: 'Centre', right: 'Right' };
+const TEXT_CARD_SIZE_LABELS = { sm: 'S', md: 'M', lg: 'L' };
+const FOOTER_ALIGN_ICON_ATTRS =
+  'width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"';
+const TEXT_CARD_ALIGN_ICONS = {
+  left: `<svg ${FOOTER_ALIGN_ICON_ATTRS}><path d="M4 6h16M4 12h10M4 18h14"/></svg>`,
+  center: `<svg ${FOOTER_ALIGN_ICON_ATTRS}><path d="M4 6h16M7 12h10M6 18h14"/></svg>`,
+  right: `<svg ${FOOTER_ALIGN_ICON_ATTRS}><path d="M4 6h16M14 12h6M10 18h10"/></svg>`,
+};
+
 let timerState = { running: false, endAt: null, remainingSec: 300 };
 let timerFloatDismissed = false;
 let state = loadState();
@@ -388,11 +401,63 @@ function getImageRemoveFooterHTML() {
   return `<button type="button" class="block-footer-btn block-footer-btn-icon" data-action="remove-image" title="Remove image" aria-label="Remove image">${FOOTER_ICON_REMOVE}</button>`;
 }
 
+function blockUsesTextStyle(block) {
+  return TEXT_CARD_TYPES.has(block?.type);
+}
+
+function normalizeTextCardStyle(block) {
+  if (!blockUsesTextStyle(block)) return;
+  if (!block.textAlign && block.headingAlign) block.textAlign = block.headingAlign;
+  if (!block.textSize && block.headingSize) block.textSize = block.headingSize;
+  if (!TEXT_CARD_ALIGNS.includes(block.textAlign)) block.textAlign = 'left';
+  if (!TEXT_CARD_SIZES.includes(block.textSize)) block.textSize = 'md';
+}
+
+function getTextCardStyleClassList(block) {
+  normalizeTextCardStyle(block);
+  return `text-align-${block.textAlign} text-size-${block.textSize}`;
+}
+
+function getPresentTextCardStyleClasses(block) {
+  if (!blockUsesTextStyle(block)) return '';
+  normalizeTextCardStyle(block);
+  return ` present-text-align-${block.textAlign} present-text-size-${block.textSize}`;
+}
+
+function syncTextCardStyleOnBlock(el, block) {
+  if (!blockUsesTextStyle(block)) return;
+  const parts = getTextCardStyleClassList(block).split(' ');
+  const strip = [
+    ...TEXT_CARD_ALIGNS.map((a) => `text-align-${a}`),
+    ...TEXT_CARD_SIZES.map((s) => `text-size-${s}`),
+    ...TEXT_CARD_ALIGNS.map((a) => `heading-align-${a}`),
+    ...TEXT_CARD_SIZES.map((s) => `heading-size-${s}`),
+  ];
+  $$('.block-title-input, .block-content', el).forEach((node) => {
+    strip.forEach((c) => node.classList.remove(c));
+    parts.forEach((c) => node.classList.add(c));
+  });
+}
+
+function getTextCardStyleFooterHTML(block) {
+  normalizeTextCardStyle(block);
+  const alignBtns = TEXT_CARD_ALIGNS.map(
+    (a) =>
+      `<button type="button" class="block-footer-segment-btn block-footer-segment-btn--icon${block.textAlign === a ? ' is-active' : ''}" data-action="text-align" data-text-align="${a}" title="${TEXT_CARD_ALIGN_LABELS[a]}" aria-label="${TEXT_CARD_ALIGN_LABELS[a]}" aria-pressed="${block.textAlign === a ? 'true' : 'false'}">${TEXT_CARD_ALIGN_ICONS[a]}</button>`
+  ).join('');
+  const sizeBtns = TEXT_CARD_SIZES.map(
+    (s) =>
+      `<button type="button" class="block-footer-segment-btn${block.textSize === s ? ' is-active' : ''}" data-action="text-size" data-text-size="${s}" aria-pressed="${block.textSize === s ? 'true' : 'false'}">${TEXT_CARD_SIZE_LABELS[s]}</button>`
+  ).join('');
+  return `<div class="block-footer-segment" role="group" aria-label="Alignment">${alignBtns}</div>
+    <div class="block-footer-segment" role="group" aria-label="Text size">${sizeBtns}</div>`;
+}
+
 function getListRevealFooterHTML(block) {
   const on = listUsesRevealInPresent(block);
-  return `<div class="block-footer-reveal" title="${on ? 'Reveal bullets one at a time in Present' : 'Show all bullets at once in Present'}">
-    <span class="block-footer-reveal-label">Bullet reveal</span>
-    <button type="button" class="block-footer-toggle${on ? ' is-on' : ''}" role="switch" aria-checked="${on ? 'true' : 'false'}" aria-label="Bullet reveal in Present" data-action="toggle-list-reveal">
+  return `<div class="block-footer-reveal block-footer-reveal--compact" title="${on ? 'Reveal bullets one at a time in Present' : 'Show all bullets at once in Present'}">
+    <span class="block-footer-reveal-label block-footer-reveal-label--stacked" aria-hidden="true"><span>Bullet</span><span>reveal</span></span>
+    <button type="button" class="block-footer-toggle block-footer-toggle--compact${on ? ' is-on' : ''}" role="switch" aria-checked="${on ? 'true' : 'false'}" aria-label="Bullet reveal in Present" data-action="toggle-list-reveal">
       <span class="block-footer-toggle-track" aria-hidden="true"><span class="block-footer-toggle-thumb"></span></span>
     </button>
   </div>`;
@@ -467,6 +532,7 @@ function normalizeBoardState(data) {
     normalizeQuizData(b);
     normalizeBrainBreakData(b);
     normalizeWorldMapData(b);
+    normalizeTextCardStyle(b);
     if (b.type === 'whiteboard' && !b.blankDraw) b.blankDraw = null;
     else if (b.type === 'whiteboard' && b.blankDraw === '') b.blankDraw = null;
   });
@@ -1480,9 +1546,10 @@ function getInlineImageHTML(block) {
 
 function getTextCardBodyHTML(block, { titlePlaceholder, contentPlaceholder, fallbackContent }) {
   const title = escapeHtml(block.title || '');
-  return `<input class="block-title-input" type="text" value="${title}" placeholder="${titlePlaceholder}" data-field="title" />
+  const styleCls = blockUsesTextStyle(block) ? ` ${getTextCardStyleClassList(block)}` : '';
+  return `<input class="block-title-input${styleCls}" type="text" value="${title}" placeholder="${titlePlaceholder}" data-field="title" />
     ${getInlineImageHTML(block)}
-    <div class="block-content" contenteditable="true" data-field="content" data-placeholder="${contentPlaceholder}">${block.content || fallbackContent}</div>`;
+    <div class="block-content${styleCls}" contenteditable="true" data-field="content" data-placeholder="${contentPlaceholder}">${block.content || fallbackContent}</div>`;
 }
 
 function getNoteListImageFooterHTML(block) {
@@ -1646,6 +1713,7 @@ function updateBlockElement(el, block) {
 
   if (canPreserveBlockBody(el, block)) {
     refreshColorDots(el, block);
+    syncTextCardStyleOnBlock(el, block);
     syncBlockFooter(el, block);
     return;
   }
@@ -1676,42 +1744,55 @@ function syncBlockFooter(el, block) {
   const footer = $('.block-footer', el);
   if (!footer) return;
 
-  const left = [];
+  const primary = [];
+  const secondary = [];
+
   if (block.type === 'image' && block.imageData) {
-    left.push(getImageReplaceFooterHTML());
+    primary.push(getImageReplaceFooterHTML());
   }
   if (blockAcceptsInlineImage(block)) {
-    left.push(getNoteListImageFooterHTML(block));
+    primary.push(getNoteListImageFooterHTML(block));
   }
   if (block.type === 'document' && block.docData) {
-    left.push(getDocumentFooterActionsHTML(block));
+    primary.push(getDocumentFooterActionsHTML(block));
   }
   if (block.type === 'whiteboard') {
-    left.push(
+    primary.push(
       '<button type="button" class="block-footer-btn" data-action="open-whiteboard">Open whiteboard</button>'
     );
   }
+  if (blockUsesTextStyle(block)) {
+    primary.push(getTextCardStyleFooterHTML(block));
+  }
   if (block.type === 'list') {
-    left.push(getListRevealFooterHTML(block));
+    primary.push(getListRevealFooterHTML(block));
   }
   if (block.type === 'worldmap') {
-    left.push(getMapRevealFooterHTML(block));
-    left.push(
+    secondary.push(getMapRevealFooterHTML(block));
+    primary.push(
       '<label class="block-footer-btn block-footer-btn-replace" title="Replace map image">Replace map<input type="file" accept="image/*" data-field="image" hidden /></label>'
     );
     if (getWorldMapMapSrc(block)) {
-      left.push(
+      primary.push(
         '<button type="button" class="block-footer-btn" data-action="reset-map-image">Default map</button>'
       );
     }
   }
 
-  const start = left.length ? `<div class="block-footer-start">${left.join('')}</div>` : '';
+  const rows = [];
+  if (primary.length) {
+    rows.push(`<div class="block-footer-primary">${primary.join('')}</div>`);
+  }
+  if (secondary.length) {
+    rows.push(`<div class="block-footer-secondary">${secondary.join('')}</div>`);
+  }
+  const start = rows.length ? `<div class="block-footer-start">${rows.join('')}</div>` : '';
   footer.innerHTML = `${start}${getPresentFooterButtonHTML()}`;
+  footer.classList.toggle('block-footer--stacked', secondary.length > 0);
 }
 
 function getWhiteboardPreviewHTML(block) {
-  const text = (block.blankContent || '').replace(/<[^>]+>/g, '').trim();
+  const text = blankHtmlToPlainText(block.blankContent || '');
   const parts = [];
   if (text) {
     const snippet = text.slice(0, 120);
@@ -1799,9 +1880,11 @@ function isBlankDrawCanvasEmpty(canvas) {
 function getBodyHTML(block) {
   const title = escapeHtml(block.title || '');
   switch (block.type) {
-    case 'heading':
-      return `<input class="block-title-input" type="text" value="${title}" placeholder="Heading" data-field="title" />
-        <div class="block-content" contenteditable="true" data-field="content" data-placeholder="Add subtitle or notes…">${block.content || ''}</div>`;
+    case 'heading': {
+      const styleCls = getTextCardStyleClassList(block);
+      return `<input class="block-title-input ${styleCls}" type="text" value="${title}" placeholder="Heading" data-field="title" />
+        <div class="block-content ${styleCls}" contenteditable="true" data-field="content" data-placeholder="Add subtitle or notes…">${block.content || ''}</div>`;
+    }
     case 'image': {
       const imagePrompts = block.content?.trim()
         ? `<div class="block-image-prompts block-content" contenteditable="true" data-field="content" data-placeholder="Add prompts below the source…">${block.content}</div>`
@@ -1868,8 +1951,7 @@ function getBodyHTML(block) {
     }
     case 'whiteboard':
       return `<input class="block-title-input" type="text" value="${title}" placeholder="Whiteboard title" data-field="title" />
-        <div class="block-whiteboard-preview">${getWhiteboardPreviewHTML(block)}</div>
-        <button type="button" class="btn-open-whiteboard" data-action="open-whiteboard">Open whiteboard</button>`;
+        <div class="block-whiteboard-preview">${getWhiteboardPreviewHTML(block)}</div>`;
     default:
       return getTextCardBodyHTML(block, {
         titlePlaceholder: 'Title',
@@ -2535,6 +2617,30 @@ function bindBlockEvents(el, block) {
       return;
     }
 
+    const alignBtn = e.target.closest('[data-action="text-align"]');
+    if (alignBtn && blockUsesTextStyle(block)) {
+      e.preventDefault();
+      e.stopPropagation();
+      block.textAlign = alignBtn.dataset.textAlign;
+      normalizeTextCardStyle(block);
+      syncTextCardStyleOnBlock(el, block);
+      syncBlockFooter(el, block);
+      persist();
+      return;
+    }
+
+    const sizeBtn = e.target.closest('[data-action="text-size"]');
+    if (sizeBtn && blockUsesTextStyle(block)) {
+      e.preventDefault();
+      e.stopPropagation();
+      block.textSize = sizeBtn.dataset.textSize;
+      normalizeTextCardStyle(block);
+      syncTextCardStyleOnBlock(el, block);
+      syncBlockFooter(el, block);
+      persist();
+      return;
+    }
+
     if (e.target.closest('[data-action="toggle-list-reveal"]')) {
       e.preventDefault();
       e.stopPropagation();
@@ -2627,7 +2733,7 @@ function bindBlockEvents(el, block) {
 
     if (
       e.target.closest(
-        'input, textarea, [contenteditable], label, a, .block-footer-btn, .doc-upload-btn, .btn-open-whiteboard, .block-poll, .block-quiz, .worldmap-pin'
+        'input, textarea, [contenteditable], label, a, .block-footer-btn, .block-footer-segment-btn, .doc-upload-btn, .block-poll, .block-quiz, .worldmap-pin'
       )
     ) {
       if (selectedId !== block.id) selectBlock(block.id);
@@ -3012,6 +3118,10 @@ function clearBlockTypeFields(block) {
   delete block.mapPins;
   delete block.mapRevealAll;
   delete block.mapImageData;
+  delete block.textAlign;
+  delete block.textSize;
+  delete block.headingAlign;
+  delete block.headingSize;
 }
 
 function defaultBrainBreakCategories() {
@@ -3811,6 +3921,9 @@ function applyBlockTypeDefaults(block, type) {
     if (block.w < 320) block.w = 360;
     if (block.h < 240) block.h = 280;
   }
+  if (blockUsesTextStyle(block)) {
+    normalizeTextCardStyle(block);
+  }
 }
 
 function focusBlockAfterTypeChange(block, type) {
@@ -4492,16 +4605,29 @@ function readDocumentFile(file, block, el) {
 
 // --- Present ---
 
-function setPresentExpanded(expanded) {
-  presentExpanded = expanded;
-  presentOverlay.classList.toggle('present-expanded', expanded);
-  presentStage.classList.toggle('present-stage--expanded', expanded);
+function shouldShowPresentTitle(block) {
+  if (blockUsesTextStyle(block)) return true;
+  return !presentExpanded;
+}
+
+function syncPresentExpandedChrome() {
+  presentOverlay.classList.toggle('present-expanded', presentExpanded);
+  presentStage.classList.toggle('present-stage--expanded', presentExpanded);
   const btn = $('.present-expand', presentStage);
   if (!btn) return;
-  btn.setAttribute('aria-label', expanded ? 'Restore size' : 'Expand to full screen');
-  btn.title = expanded ? 'Restore size' : 'Expand to full screen';
-  btn.setAttribute('aria-pressed', expanded ? 'true' : 'false');
-  btn.innerHTML = expanded ? PRESENT_RESTORE_ICON : PRESENT_EXPAND_ICON;
+  btn.setAttribute('aria-label', presentExpanded ? 'Restore size' : 'Expand to full screen');
+  btn.title = presentExpanded ? 'Restore size' : 'Expand to full screen';
+  btn.setAttribute('aria-pressed', presentExpanded ? 'true' : 'false');
+  btn.innerHTML = presentExpanded ? PRESENT_RESTORE_ICON : PRESENT_EXPAND_ICON;
+}
+
+function setPresentExpanded(expanded) {
+  if (presentExpanded === expanded) {
+    syncPresentExpandedChrome();
+    return;
+  }
+  presentExpanded = expanded;
+  void renderPresent();
 }
 
 function bindPresentExpand() {
@@ -4536,6 +4662,7 @@ function openPresent(blockId) {
   presentExpanded = false;
   presentOverlay.hidden = false;
   document.body.style.overflow = 'hidden';
+  updateTimerDisplays();
   void renderPresent();
 
   if (presentOverlay.requestFullscreen) {
@@ -4552,6 +4679,7 @@ function closePresent() {
   presentStage.classList.remove('present-stage--expanded');
   presentOverlay.hidden = true;
   document.body.style.overflow = '';
+  updateTimerDisplays();
   if (document.fullscreenElement) {
     document.exitFullscreen().catch(() => {});
   }
@@ -4579,10 +4707,11 @@ async function renderPresent() {
     (block.type ? ` present-card--${block.type}` : '') +
     (presentCardHasInlineImage(block) ? ' present-card--has-inline-image' : '') +
     (listUsesRevealInPresent(block) ? ' present-card--list-reveal' : '') +
-    (blockUsesPresentEdit(block) ? ' present-card--present-editable' : '');
+    (blockUsesPresentEdit(block) ? ' present-card--present-editable' : '') +
+    getPresentTextCardStyleClasses(block);
   const titleAttr = block.title ? ` aria-label="${escapeAttr(block.title)}"` : '';
-  presentStage.innerHTML = `<article class="present-card${typeClass}"${titleAttr}>${expandBtn}${getPresentHTML(block, { showTitle: !presentExpanded })}</article>`;
-  setPresentExpanded(presentExpanded);
+  presentStage.innerHTML = `<article class="present-card${typeClass}"${titleAttr}>${expandBtn}${getPresentHTML(block, { showTitle: shouldShowPresentTitle(block) })}</article>`;
+  syncPresentExpandedChrome();
   bindPresentExpand();
   bindPresentListReveal();
   bindPresentEditable();
@@ -4691,11 +4820,14 @@ function getPresentHTML(block, { showTitle = true } = {}) {
       if (!body) body = '<p>Empty whiteboard</p>';
       return title + body;
     }
-    case 'heading':
-      return (
-        getPresentTitleHTML(block, { showTitle }) +
-        getPresentTextBodyHTML(block, block.content || '<p>Empty block</p>')
-      );
+    case 'heading': {
+      const titlePart = getPresentTitleHTML(block, { showTitle: true });
+      const subtitle = (block.content || '').trim();
+      if (!subtitle) {
+        return titlePart + (block.title?.trim() ? '' : getPresentTextBodyHTML(block, '<p>Empty block</p>'));
+      }
+      return titlePart + getPresentTextBodyHTML(block, block.content);
+    }
     case 'note':
       return wrapPresentTextCardHTML(block, block.content || '<p>Empty block</p>', { showTitle });
     default:
@@ -5003,12 +5135,22 @@ function getTimerRemainingSec() {
   return timerState.remainingSec;
 }
 
+function isPresentOpen() {
+  return !!(presentOverlay && !presentOverlay.hidden);
+}
+
+function isLessonTimerActive() {
+  const sec = getTimerRemainingSec();
+  const total = state.timerSeconds || 300;
+  return timerState.running || (sec > 0 && sec < total - 0.5);
+}
+
 function updateTimerDisplays() {
   const sec = getTimerRemainingSec();
   const text = formatTimer(sec);
   const low = sec > 0 && sec <= 10;
 
-  ['#timerPopoverDisplay', '#timerFloatDisplay'].forEach((sel) => {
+  ['#timerPopoverDisplay', '#timerFloatDisplay', '#presentTimerDisplay'].forEach((sel) => {
     const el = $(sel);
     if (!el) return;
     el.textContent = text;
@@ -5024,16 +5166,24 @@ function updateTimerDisplays() {
     el.classList.toggle('is-low', low);
   });
 
+  const showToolbarFloat = !timerFloatDismissed && isLessonTimerActive() && !isPresentOpen();
   const float = $('#timerFloat');
   const toolbar = $('.toolbar');
   if (float) {
-    const total = state.timerSeconds || 300;
-    const showFloat =
-      !timerFloatDismissed && (timerState.running || (sec > 0 && sec < total - 0.5));
-    float.hidden = !showFloat;
-    if (showFloat) float.removeAttribute('hidden');
+    float.hidden = !showToolbarFloat;
+    if (showToolbarFloat) float.removeAttribute('hidden');
     else float.setAttribute('hidden', '');
-    toolbar?.classList.toggle('has-timer', showFloat);
+    toolbar?.classList.toggle('has-timer', showToolbarFloat);
+  }
+
+  const showPresentTimer = isPresentOpen() && isLessonTimerActive();
+  const presentTimer = $('#presentTimer');
+  if (presentTimer) {
+    presentTimer.hidden = !showPresentTimer;
+    if (showPresentTimer) presentTimer.removeAttribute('hidden');
+    else presentTimer.setAttribute('hidden', '');
+    const pauseBtn = $('#presentTimerPause');
+    if (pauseBtn) pauseBtn.textContent = timerState.running ? 'Pause' : 'Resume';
   }
 }
 
@@ -5092,9 +5242,15 @@ function startTimer() {
   timerState.endAt = Date.now() + sec * 1000;
   $('#timerStart')?.toggleAttribute('hidden', true);
   $('#timerPause')?.removeAttribute('hidden');
-  $('#timerFloatPause').textContent = 'Pause';
+  syncTimerPauseLabels('Pause');
   startTimerTick();
   updateTimerDisplays();
+}
+
+function syncTimerPauseLabels(label) {
+  $('#timerFloatPause').textContent = label;
+  const presentPause = $('#presentTimerPause');
+  if (presentPause) presentPause.textContent = label;
 }
 
 function pauseTimer() {
@@ -5105,7 +5261,7 @@ function pauseTimer() {
   stopTimerTick();
   $('#timerStart')?.removeAttribute('hidden');
   $('#timerPause')?.setAttribute('hidden', '');
-  $('#timerFloatPause').textContent = 'Resume';
+  syncTimerPauseLabels('Resume');
   updateTimerDisplays();
 }
 
@@ -5114,7 +5270,7 @@ function resetTimer() {
   setTimerDuration(state.timerSeconds || 300);
   $('#timerStart')?.removeAttribute('hidden');
   $('#timerPause')?.setAttribute('hidden', '');
-  $('#timerFloatPause').textContent = 'Pause';
+  syncTimerPauseLabels('Pause');
 }
 
 function toggleTimerPopover() {
@@ -5146,11 +5302,17 @@ function initTimerUI() {
   $('#timerStart')?.addEventListener('click', startTimer);
   $('#timerPause')?.addEventListener('click', pauseTimer);
   $('#timerReset')?.addEventListener('click', resetTimer);
-  $('#timerFloatPause')?.addEventListener('click', () => {
-    if (timerState.running) pauseTimer();
-    else startTimer();
-  });
+  const bindTimerPause = (btn) => {
+    btn?.addEventListener('click', () => {
+      if (timerState.running) pauseTimer();
+      else startTimer();
+    });
+  };
+  bindTimerPause($('#timerFloatPause'));
+  bindTimerPause($('#presentTimerPause'));
+
   $('#timerFloatReset')?.addEventListener('click', resetTimer);
+  $('#presentTimerReset')?.addEventListener('click', resetTimer);
   $('#timerFloatClose')?.addEventListener('click', (e) => {
     e.stopPropagation();
     dismissTimerFloat();
@@ -5172,21 +5334,60 @@ const BLANK_TABLE_ROWS_MAX = 12;
 const BLANK_TABLE_COLS_MAX = 8;
 
 const BLANK_TABLE_DELETE_BTN_HTML =
-  '<button type="button" class="blank-table-delete btn btn-ghost btn-sm">Delete table</button>';
+  '<div class="blank-table-bar" contenteditable="false"><button type="button" class="blank-table-delete btn-icon" aria-label="Delete table" title="Delete table">×</button></div>';
+
+function blankHtmlToPlainText(html) {
+  if (!html?.trim()) return '';
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  return (div.textContent || '').replace(/\s+/g, ' ').trim();
+}
+
+function cleanBlankEditorDom(editor) {
+  if (!editor) return;
+  editor.querySelectorAll('.blank-table-delete, .blank-table-bar').forEach((el) => {
+    const block = el.closest('.blank-table-block');
+    if (block && !block.querySelector('.blank-table')) block.remove();
+    else if (!el.closest('.blank-table-block')) el.remove();
+  });
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+  const textNodes = [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode);
+  textNodes.forEach((node) => {
+    if (!node.textContent.includes('Delete table')) return;
+    node.textContent = node.textContent.replace(/Delete table/g, '');
+    if (!node.textContent.trim()) node.remove();
+  });
+  editor.innerHTML = editor.innerHTML.replace(/&nbsp;/gi, ' ');
+}
 
 function ensureBlankTableControls(editor) {
   if (!editor) return;
   editor.querySelectorAll('.blank-table-wrap').forEach((wrap) => {
-    if (wrap.querySelector('.blank-table-delete')) return;
-    wrap.insertAdjacentHTML('afterbegin', BLANK_TABLE_DELETE_BTN_HTML);
+    if (wrap.closest('.blank-table-block')) {
+      if (!wrap.parentElement.querySelector('.blank-table-delete')) {
+        wrap.parentElement.insertAdjacentHTML('afterbegin', BLANK_TABLE_DELETE_BTN_HTML);
+      }
+      return;
+    }
+    const block = document.createElement('div');
+    block.className = 'blank-table-block';
+    block.setAttribute('contenteditable', 'false');
+    block.innerHTML = BLANK_TABLE_DELETE_BTN_HTML;
+    wrap.parentNode.insertBefore(block, wrap);
+    block.appendChild(wrap);
   });
 }
 
 function removeBlankTableWrap(wrap) {
-  if (!wrap) return;
-  wrap.remove();
+  const block = wrap?.closest('.blank-table-block') || wrap;
+  if (!block) return;
+  block.remove();
   const editor = $('#blankEditor');
-  if (editor) setBlankContent(editor.innerHTML);
+  if (editor) {
+    cleanBlankEditorDom(editor);
+    setBlankContent(editor.innerHTML);
+  }
   showToast('Table removed');
 }
 
@@ -5194,7 +5395,7 @@ function buildBlankTableHtml(rows, cols) {
   const r = Math.min(BLANK_TABLE_ROWS_MAX, Math.max(1, Math.round(rows) || 1));
   const c = Math.min(BLANK_TABLE_COLS_MAX, Math.max(1, Math.round(cols) || 1));
   const colPct = (100 / c).toFixed(3);
-  let html = `<div class="blank-table-wrap" contenteditable="false">${BLANK_TABLE_DELETE_BTN_HTML}<table class="blank-table"><colgroup>`;
+  let html = `<div class="blank-table-block" contenteditable="false">${BLANK_TABLE_DELETE_BTN_HTML}<div class="blank-table-wrap"><table class="blank-table"><colgroup>`;
   for (let x = 0; x < c; x++) {
     html += `<col style="width:${colPct}%" />`;
   }
@@ -5207,7 +5408,7 @@ function buildBlankTableHtml(rows, cols) {
     }
     html += '</tr>';
   }
-  html += '</tbody></table></div><p><br></p>';
+  html += '</tbody></table></div></div><p><br></p>';
   return html;
 }
 
@@ -5231,7 +5432,7 @@ function insertHtmlIntoBlankEditor(html) {
   }
   if (!inserted) editor.insertAdjacentHTML('beforeend', html);
   setBlankContent(editor.innerHTML);
-  const wrap = editor.querySelector('.blank-table-wrap:last-of-type');
+  const wrap = editor.querySelector('.blank-table-block:last-of-type .blank-table-wrap');
   const firstCell = wrap?.querySelector('th[contenteditable], td[contenteditable]');
   if (firstCell) {
     firstCell.focus();
@@ -5279,6 +5480,7 @@ function openBlank(blockId) {
   const content = getBlankContent();
   if (editor && editor.innerHTML !== content) editor.innerHTML = content;
   ensureBlankTableControls(editor);
+  cleanBlankEditorDom(editor);
   const block = blankBlockId ? getBlock(blankBlockId) : null;
   if (block?.type === 'whiteboard') setBlankTab('draw');
   else setBlankTab('type');
@@ -5587,7 +5789,7 @@ function initBlankUI() {
     if (!btn) return;
     e.preventDefault();
     e.stopPropagation();
-    removeBlankTableWrap(btn.closest('.blank-table-wrap'));
+    removeBlankTableWrap(btn.closest('.blank-table-block, .blank-table-wrap'));
   });
   $('#blankEditor')?.addEventListener('input', () => {
     setBlankContent($('#blankEditor').innerHTML);
