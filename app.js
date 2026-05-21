@@ -147,6 +147,8 @@ const DEFAULTS = {
   timerSeconds: 300,
   mindMapCenterId: null,
   defaultAccent: null,
+  presentUseBoardBackground: false,
+  presentUseCardColour: false,
 };
 
 const MIND_MAP_BRANCH = { w: 280, h: 180, accent: 'gold' };
@@ -245,84 +247,19 @@ const BLOOM_LEVELS_DEFAULT = [
   },
 ];
 
-const BRAIN_BREAK_DEFAULT = [
-  {
-    name: 'Quick & energising',
-    hint: 'Physical movement — get the wiggles out or boost low energy',
-    accent: '#ea580c',
-    surface: '#ffedd5',
-    activities: [
-      {
-        title: 'Silent Ball',
-        detail:
-          'Students pass a soft ball around the room silently. If someone drops it, makes a bad pass, or makes a noise, they are out.',
-      },
-      {
-        title: 'Statues',
-        detail:
-          'Call out a theme (e.g. “At the beach”) and count to three. Students jump into a pose and freeze still while you admire the statues.',
-      },
-      {
-        title: '5-4-3-2-1',
-        detail:
-          '5 star jumps, 4 squats, 3 spins, 2 hops, and 1 deep breath — a quick sequence to get hearts pumping.',
-      },
-      {
-        title: 'Rock Paper Scissors tournament',
-        detail: 'Students play quick rounds; losers sit down until one champion remains.',
-      },
-    ],
-  },
-  {
-    name: 'Calming & mindful',
-    hint: 'Focus reset when the class is overstimulated or before quiet work',
-    accent: '#0284c7',
-    surface: '#e0f2fe',
-    activities: [
-      {
-        title: 'Focus ball / mindful listening',
-        detail:
-          'Sound a chime or bell. Students close their eyes and listen until the sound completely fades away.',
-      },
-      {
-        title: 'Square breathing',
-        detail: 'Inhale for 4, hold for 4, exhale for 4, hold for 4. Visual guides (e.g. GoNoodle) can help.',
-      },
-      {
-        title: 'Jellyfish video',
-        detail: 'Dim the lights and play a calming jellyfish or nature video to help students de-escalate.',
-      },
-      {
-        title: 'Finger tracing',
-        detail:
-          'Students trace one hand with a finger — inhale up each finger, exhale down the other side.',
-      },
-    ],
-  },
-  {
-    name: 'Quick thinking & social',
-    hint: 'Brief cognitive shifts that build community without heavy movement',
-    accent: '#7c3aed',
-    surface: '#ede9fe',
-    activities: [
-      {
-        title: 'Would you rather?',
-        detail:
-          'Ask one question (e.g. “Pet dragon or pet unicorn?”). Students discuss or move to different sides of the room.',
-      },
-      {
-        title: 'Count to 20',
-        detail:
-          'The class counts to 20 one voice at a time. If two people speak at once, restart at one — builds focus and listening.',
-      },
-      {
-        title: 'Mirror mirror',
-        detail:
-          'In pairs, one student leads slow movements and the partner mirrors them perfectly, then swap.',
-      },
-    ],
-  },
-];
+function getBrainBreakLibrary() {
+  return window.PREZ_BRAIN_BREAK_ROUTINES || [];
+}
+
+function brainBreakLibraryAsCategories() {
+  return getBrainBreakLibrary().map((group) => ({
+    name: group.category,
+    hint: group.hint,
+    accent: group.accent,
+    surface: group.surface,
+    activities: (group.activities || []).map((a) => ({ title: a.title, detail: a.detail })),
+  }));
+}
 
 const TEXT_CARD_TYPES = new Set(['heading', 'note', 'list']);
 const TEXT_CARD_ALIGNS = ['left', 'center', 'right'];
@@ -370,6 +307,8 @@ let blankDrawUndoBusy = false;
 let blankCanvasOwnerId = null;
 /** True after the user changes the drawing (skip save on close if still false). */
 let blankDrawDirty = false;
+/** Whiteboard workspace mounted inside Present (type / table / draw). */
+let presentWhiteboardMounted = false;
 
 const BLANK_DRAW_WIDTHS = { s: 3, m: 6, l: 12 };
 const BLANK_DRAW_UNDO_MAX = 24;
@@ -453,6 +392,92 @@ function getTextCardStyleFooterHTML(block) {
     <div class="block-footer-segment" role="group" aria-label="Text size">${sizeBtns}</div>`;
 }
 
+const TABLE_CELL_ALIGNS = ['left', 'center', 'right'];
+
+function getTableColumnCountFromHtml(html) {
+  if (!html?.trim()) return 0;
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  const table = div.querySelector('table');
+  if (!table) return 0;
+  const headerRow = getTableHeaderRow(table);
+  return headerRow ? getTableRowCells(headerRow).length : 0;
+}
+
+function normalizeTableColAligns(block) {
+  if (block?.type !== 'table') return;
+  const count = getTableColumnCountFromHtml(block.tableHtml || defaultTableHtml());
+  if (!count) {
+    delete block.tableColAligns;
+    return;
+  }
+  let aligns = Array.isArray(block.tableColAligns) ? block.tableColAligns.filter((a) => typeof a === 'string') : [];
+  if (!aligns.length) {
+    aligns = Array(count).fill('left');
+    aligns[0] = 'center';
+  }
+  while (aligns.length < count) aligns.push('left');
+  aligns.length = count;
+  block.tableColAligns = aligns.map((a, i) =>
+    TABLE_CELL_ALIGNS.includes(a) ? a : i === 0 ? 'center' : 'left'
+  );
+}
+
+function getTableColAlignClassList(aligns) {
+  return (aligns || [])
+    .map((a, i) => (TABLE_CELL_ALIGNS.includes(a) ? `table-cell-col-${i}-${a}` : ''))
+    .filter(Boolean)
+    .join(' ');
+}
+
+function stripTableColAlignClasses(className) {
+  return (className || '')
+    .split(/\s+/)
+    .filter((c) => c && !/^table-cell-col-\d+-/.test(c))
+    .join(' ');
+}
+
+function applyTableColAlignClassesToTable(table, block) {
+  if (!table) return;
+  normalizeTableColAligns(block);
+  const aligns = block.tableColAligns || [];
+  table.className = stripTableColAlignClasses(table.className);
+  const extra = getTableColAlignClassList(aligns);
+  if (extra) table.className = `${table.className} ${extra}`.trim();
+}
+
+function applyTableColAlignsToHtml(block, html) {
+  if (!html?.trim()) return html;
+  normalizeTableColAligns(block);
+  const extra = getTableColAlignClassList(block.tableColAligns);
+  if (!extra) return html;
+  return html.replace(/<table(\s[^>]*)?>/i, (match) => {
+    if (/class="/i.test(match)) {
+      return match.replace(/class="([^"]*)"/i, (_, cls) => {
+        const cleaned = stripTableColAlignClasses(cls);
+        return `class="${`${cleaned} ${extra}`.trim()}"`;
+      });
+    }
+    return match.replace('<table', `<table class="block-table ${extra}"`);
+  });
+}
+
+function syncTableColAlignOnBlock(el, block) {
+  if (!el || block?.type !== 'table') return;
+  applyTableColAlignClassesToTable($('.block-table', el), block);
+}
+
+function getTableColAlignFooterHTML(block) {
+  normalizeTableColAligns(block);
+  const col0 = block.tableColAligns?.[0] || 'left';
+  const alignBtns = TABLE_CELL_ALIGNS.map(
+    (a) =>
+      `<button type="button" class="block-footer-segment-btn block-footer-segment-btn--icon${col0 === a ? ' is-active' : ''}" data-action="table-col-align" data-col-index="0" data-text-align="${a}" title="Column 1: ${TEXT_CARD_ALIGN_LABELS[a]}" aria-label="Column 1: ${TEXT_CARD_ALIGN_LABELS[a]}" aria-pressed="${col0 === a ? 'true' : 'false'}">${TEXT_CARD_ALIGN_ICONS[a]}</button>`
+  ).join('');
+  return `<div class="block-footer-segment block-footer-segment--table-col" role="group" aria-label="First column alignment">
+    <span class="block-footer-segment-prefix" aria-hidden="true">Col 1</span>${alignBtns}</div>`;
+}
+
 function getListRevealFooterHTML(block) {
   const on = listUsesRevealInPresent(block);
   return `<div class="block-footer-reveal block-footer-reveal--compact" title="${on ? 'Reveal bullets one at a time in Present' : 'Show all bullets at once in Present'}">
@@ -533,6 +558,7 @@ function normalizeBoardState(data) {
     normalizeBrainBreakData(b);
     normalizeWorldMapData(b);
     normalizeTextCardStyle(b);
+    if (b.type === 'table') normalizeTableColAligns(b);
     if (b.type === 'whiteboard' && !b.blankDraw) b.blankDraw = null;
     else if (b.type === 'whiteboard' && b.blankDraw === '') b.blankDraw = null;
   });
@@ -547,6 +573,8 @@ function normalizeBoardState(data) {
   if (merged.defaultAccent && !ACCENTS.includes(merged.defaultAccent)) {
     merged.defaultAccent = null;
   }
+  merged.presentUseBoardBackground = !!merged.presentUseBoardBackground;
+  merged.presentUseCardColour = !!merged.presentUseCardColour;
   timerState.remainingSec = merged.timerSeconds;
   return merged;
 }
@@ -682,6 +710,30 @@ function applyBackground() {
   if (state.background.startsWith('url(')) {
     canvas.style.backgroundSize = 'cover';
     canvas.style.backgroundPosition = 'center';
+  } else {
+    canvas.style.backgroundSize = '';
+    canvas.style.backgroundPosition = '';
+  }
+  applyPresentBackground();
+}
+
+function applyPresentBackground() {
+  if (!presentOverlay) return;
+  const useBoardBg = !!state.presentUseBoardBackground;
+  presentOverlay.classList.toggle('present-overlay--board-bg', useBoardBg);
+  if (!useBoardBg) {
+    presentOverlay.style.background = '';
+    presentOverlay.style.backgroundSize = '';
+    presentOverlay.style.backgroundPosition = '';
+    return;
+  }
+  presentOverlay.style.background = state.background;
+  if (state.background.startsWith('url(')) {
+    presentOverlay.style.backgroundSize = 'cover';
+    presentOverlay.style.backgroundPosition = 'center';
+  } else {
+    presentOverlay.style.backgroundSize = '';
+    presentOverlay.style.backgroundPosition = '';
   }
 }
 
@@ -718,6 +770,7 @@ function render() {
   resizeCanvasToContent();
   updateAlignToolbar();
   if (!$('#outlinePanel')?.hidden) renderOutline();
+  refreshAllTableColumnResizes();
   persist();
 }
 
@@ -727,7 +780,7 @@ function updateEmptyState() {
     if (!empty) {
       empty = document.createElement('div');
       empty.className = 'canvas-empty';
-      empty.innerHTML = '<h2>Your board is empty</h2><p>Click <strong>Post</strong> to add your first block</p>';
+      empty.innerHTML = '<h2>Your board is empty</h2><p>Click <strong>+</strong> to add your first block</p>';
       canvasInner.appendChild(empty);
     }
   } else if (empty) {
@@ -743,6 +796,24 @@ function applyAccentStyles(el, accent) {
   el.style.setProperty('--accent-solid', colors.solid);
   el.style.setProperty('--accent-surface', colors.surface);
   el.style.setProperty('--accent-header', colors.header);
+}
+
+function clearAccentStyles(el) {
+  if (!el) return;
+  el.removeAttribute('data-accent');
+  el.removeAttribute('data-accent-light');
+  el.style.removeProperty('--accent-solid');
+  el.style.removeProperty('--accent-surface');
+  el.style.removeProperty('--accent-header');
+}
+
+function applyPresentCardAccent(card, block) {
+  if (!card) return;
+  if (!state.presentUseCardColour) {
+    clearAccentStyles(card);
+    return;
+  }
+  applyAccentStyles(card, block?.accent);
 }
 
 function positionBlock(el, block) {
@@ -1036,6 +1107,46 @@ function syncFormatMenuActive(mode) {
   });
 }
 
+function syncFormatMenuPresentToggle(selector, on) {
+  const btn = formatMenu?.querySelector(selector);
+  if (!btn) return;
+  btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  btn.classList.toggle('is-on', on);
+  const thumb = btn.querySelector('.format-menu-present-switch');
+  thumb?.classList.toggle('is-on', on);
+}
+
+function syncFormatMenuPresentOptions() {
+  syncFormatMenuPresentToggle('[data-present-board-bg]', !!state.presentUseBoardBackground);
+  syncFormatMenuPresentToggle('[data-present-card-colour]', !!state.presentUseCardColour);
+}
+
+function buildFormatMenuPresentToggleHTML({ on, dataAttr, labelHtml }) {
+  return `<button type="button" class="format-menu-present-toggle${on ? ' is-on' : ''}" role="menuitemcheckbox" ${dataAttr} aria-pressed="${on ? 'true' : 'false'}">
+      <span class="format-menu-present-toggle-label">${labelHtml}</span>
+      <span class="format-menu-present-switch${on ? ' is-on' : ''}" aria-hidden="true"><span class="format-menu-present-switch-thumb"></span></span>
+    </button>`;
+}
+
+function buildFormatMenuPresentOptionsHTML() {
+  const bgOn = !!state.presentUseBoardBackground;
+  const colourOn = !!state.presentUseCardColour;
+  return `<div class="format-menu-divider"></div>
+    <p class="format-menu-heading">Presentation mode</p>
+    <div class="format-menu-present-options">
+      ${buildFormatMenuPresentToggleHTML({
+        on: bgOn,
+        dataAttr: 'data-present-board-bg',
+        labelHtml: 'Use background in<br>presentation mode',
+      })}
+      ${buildFormatMenuPresentToggleHTML({
+        on: colourOn,
+        dataAttr: 'data-present-card-colour',
+        labelHtml: 'Use card colour in<br>presentation',
+      })}
+    </div>`;
+}
+
 function buildFormatMenuColorPickerHTML() {
   const toneRow = (label, ids) => {
     const dots = ids
@@ -1049,7 +1160,7 @@ function buildFormatMenuColorPickerHTML() {
   };
 
   return `<div class="format-menu-divider"></div>
-    <p class="format-menu-heading">Global colour picker</p>
+    <p class="format-menu-heading">GLOBAL CARD COLOUR</p>
     <p class="format-menu-desc">Apply one colour to every card on this board.</p>
     <div class="format-menu-color-picker">
       ${toneRow('Bold', ACCENT_DARK)}
@@ -1058,10 +1169,11 @@ function buildFormatMenuColorPickerHTML() {
 }
 
 function buildFormatMenu() {
-  if (!formatMenu || formatMenu.dataset.built) return;
-  formatMenu.dataset.built = '1';
+  if (!formatMenu || formatMenu.dataset.built === '4') return;
+  formatMenu.dataset.built = '4';
 
   let html = buildFormatMenuColorPickerHTML();
+  html += buildFormatMenuPresentOptionsHTML();
   html += '<div class="format-menu-divider"></div>';
   FORMAT_MENU_SECTIONS.forEach((section, si) => {
     if (si > 0) html += '<div class="format-menu-divider"></div>';
@@ -1076,6 +1188,7 @@ function buildFormatMenu() {
   });
   formatMenu.innerHTML = html;
   syncFormatMenuGlobalColors();
+  syncFormatMenuPresentOptions();
 }
 
 function toggleFormatMenu(open) {
@@ -1083,7 +1196,10 @@ function toggleFormatMenu(open) {
   const show = typeof open === 'boolean' ? open : formatMenu.hidden;
   formatMenu.hidden = !show;
   btnFormat.setAttribute('aria-expanded', show ? 'true' : 'false');
-  if (show) syncFormatMenuGlobalColors();
+  if (show) {
+    syncFormatMenuGlobalColors();
+    syncFormatMenuPresentOptions();
+  }
   syncToolbarOverlayLock();
 }
 
@@ -1227,6 +1343,31 @@ function initFormatMenu() {
       e.stopPropagation();
       applyGlobalAccent(colorBtn.dataset.globalColor);
       closeFormatMenu();
+      return;
+    }
+    if (e.target.closest('[data-present-board-bg]')) {
+      e.stopPropagation();
+      state.presentUseBoardBackground = !state.presentUseBoardBackground;
+      applyPresentBackground();
+      syncFormatMenuPresentOptions();
+      persist();
+      showToast(
+        state.presentUseBoardBackground
+          ? 'Present will use this board background'
+          : 'Present will use the dark backdrop'
+      );
+      return;
+    }
+    if (e.target.closest('[data-present-card-colour]')) {
+      e.stopPropagation();
+      state.presentUseCardColour = !state.presentUseCardColour;
+      syncFormatMenuPresentOptions();
+      persist();
+      showToast(
+        state.presentUseCardColour
+          ? 'Present will use each card’s colour'
+          : 'Present will use white cards'
+      );
       return;
     }
     const btn = e.target.closest('.format-menu-item');
@@ -1530,6 +1671,23 @@ function canPreserveBlockBody(el, block) {
     return !!(img && img.getAttribute('src') === block.imageData);
   }
 
+  if (block.type === 'whiteboard') {
+    const blankEl = $('[data-field="blank-content"]', el);
+    const active = document.activeElement;
+    const editingOnCard = blankEl && (active === blankEl || blankEl.contains(active));
+    if (editingOnCard) {
+      const saved = cleanTableColResizeMarkup(block.blankContent || '');
+      const live = cleanTableColResizeMarkup(blankEl.innerHTML);
+      if (live !== saved) return false;
+      if (block.blankDraw) {
+        const img = $('.block-whiteboard-thumb', el);
+        return !!(img && img.getAttribute('src') === block.blankDraw);
+      }
+      return !$('.block-whiteboard-thumb', el);
+    }
+    return false;
+  }
+
   return false;
 }
 
@@ -1596,8 +1754,93 @@ function wrapPresentTextCardHTML(block, bodyHTML, { showTitle = true } = {}) {
   return `<div class="present-card-stack">${title}${image}${body}</div>`;
 }
 
+function syncPresentWhiteboardFromBlank() {
+  const block = blankBlockId ? getBlock(blankBlockId) : getPresentBlocks()[presentIndex];
+  if (!block || block.type !== 'whiteboard') return;
+  const editor = $('#blankEditor');
+  if (editor) {
+    block.blankContent = cleanTableColResizeMarkup(editor.innerHTML);
+  }
+  saveBlankDraw();
+  persist();
+  const el = $(`[data-block-id="${block.id}"]`, canvasInner);
+  if (el) updateWhiteboardPreview(block);
+}
+
+function hidePresentWhiteboard() {
+  if (!presentWhiteboardMounted) return;
+  syncPresentWhiteboardFromBlank();
+  const overlay = $('#blankOverlay');
+  const present = $('#presentOverlay');
+  if (overlay) {
+    overlay.hidden = true;
+    overlay.setAttribute('hidden', '');
+    overlay.classList.remove('blank-overlay--present');
+    if (present && overlay.parentElement === present) {
+      document.body.insertBefore(overlay, present.nextSibling);
+    }
+  }
+  $('#blankClose')?.removeAttribute('hidden');
+  blankBlockId = null;
+  blankCanvasOwnerId = null;
+  blankDrawUndoStack.length = 0;
+  blankStrokeBefore = null;
+  blankStrokeMoved = false;
+  syncBlankDrawUndoBtn();
+  presentWhiteboardMounted = false;
+}
+
+function mountPresentWhiteboard(block) {
+  const overlay = $('#blankOverlay');
+  const present = $('#presentOverlay');
+  if (!overlay || !present || !block || block.type !== 'whiteboard') return;
+
+  if (presentWhiteboardMounted && blankBlockId === block.id) {
+    requestAnimationFrame(() => resizeBlankCanvas());
+    return;
+  }
+
+  hidePresentWhiteboard();
+
+  blankBlockId = block.id;
+  blankCanvasOwnerId = block.id;
+  blankDrawDirty = false;
+  blankDrawUndoStack.length = 0;
+  blankStrokeBefore = null;
+  blankStrokeMoved = false;
+  syncBlankDrawUndoBtn();
+
+  present.appendChild(overlay);
+  overlay.hidden = false;
+  overlay.removeAttribute('hidden');
+  overlay.classList.add('blank-overlay--present');
+  $('#blankClose')?.setAttribute('hidden', '');
+
+  const editor = $('#blankEditor');
+  const content = block.blankContent || '';
+  if (editor && editor.innerHTML !== content) editor.innerHTML = content;
+  ensureBlankTableControls(editor);
+  cleanBlankEditorDom(editor);
+  normalizeBlankEditorStructure(editor);
+  setBlankTab(block.blankDraw && !(block.blankContent || '').trim() ? 'draw' : 'type');
+  resetBlankCanvasBuffer();
+  initBlankCanvas();
+  requestAnimationFrame(() => {
+    resizeBlankCanvas();
+    if ($('[data-blank-pane="type"]') && !($('[data-blank-pane="type"]')?.hidden)) {
+      editor?.querySelector(':scope > .blank-editor-surface')?.focus();
+    }
+  });
+
+  presentWhiteboardMounted = true;
+}
+
 function syncPresentEditableFromStage() {
   const block = getPresentBlocks()[presentIndex];
+  if (block?.type === 'whiteboard' && presentWhiteboardMounted) {
+    syncPresentWhiteboardFromBlank();
+    return;
+  }
   const card = $('.present-card', presentStage);
   if (!block || !card || !blockUsesPresentEdit(block)) return;
 
@@ -1608,7 +1851,7 @@ function syncPresentEditableFromStage() {
     const introEl = $('.present-table-intro[data-present-field="content"]', card);
     if (introEl) block.content = introEl.innerHTML;
     const table = $('.block-table', card);
-    if (table) block.tableHtml = table.outerHTML;
+    if (table) block.tableHtml = serializeTableHtml(table);
   } else {
     const contentEl = $('[data-present-field="content"]', card);
     if (contentEl) block.content = contentEl.innerHTML;
@@ -1627,10 +1870,10 @@ function bindPresentEditable() {
   $('[data-present-field="title"]', card)?.addEventListener('input', onEdit);
   $$('[data-present-field="content"]', card).forEach((el) => el.addEventListener('input', onEdit));
 
-  const table = $('.block-table', card);
-  if (table) {
+  card.querySelectorAll('.block-table, .blank-table').forEach((table) => {
     table.addEventListener('input', onEdit);
-  }
+  });
+  refreshTableColumnResize(card);
 }
 
 function presentCardHasInlineImage(block) {
@@ -1725,6 +1968,7 @@ function updateBlockElement(el, block) {
 
   syncBlockFooter(el, block);
   bindBodyInputs(el, block);
+  if (block.type === 'table') syncTableColAlignOnBlock(el, block);
   if (block.type === 'worldmap' && isWorldMapDebugMode() && getWorldMapMapSrc(block)) {
     requestAnimationFrame(() => syncWorldMapDebugInfo(el, block));
   }
@@ -1767,8 +2011,10 @@ function syncBlockFooter(el, block) {
   if (block.type === 'list') {
     primary.push(getListRevealFooterHTML(block));
   }
+  if (block.type === 'table') {
+    primary.push(getTableColAlignFooterHTML(block));
+  }
   if (block.type === 'worldmap') {
-    secondary.push(getMapRevealFooterHTML(block));
     primary.push(
       '<label class="block-footer-btn block-footer-btn-replace" title="Replace map image">Replace map<input type="file" accept="image/*" data-field="image" hidden /></label>'
     );
@@ -1777,6 +2023,7 @@ function syncBlockFooter(el, block) {
         '<button type="button" class="block-footer-btn" data-action="reset-map-image">Default map</button>'
       );
     }
+    primary.push(getMapRevealFooterHTML(block));
   }
 
   const rows = [];
@@ -1791,29 +2038,57 @@ function syncBlockFooter(el, block) {
   footer.classList.toggle('block-footer--stacked', secondary.length > 0);
 }
 
-function getWhiteboardPreviewHTML(block) {
-  const text = blankHtmlToPlainText(block.blankContent || '');
-  const parts = [];
-  if (text) {
-    const snippet = text.slice(0, 120);
-    parts.push(
-      `<p class="block-whiteboard-text">${escapeHtml(snippet)}${text.length > 120 ? '…' : ''}</p>`
-    );
-  }
+function isWhiteboardCardEmpty(block) {
+  if (block.blankDraw) return false;
+  const html = (block.blankContent || '').trim();
+  if (!html) return true;
+  if (blankHtmlToPlainText(html)) return false;
+  return !/blank-table|blank-editor-surface/i.test(html);
+}
+
+function getWhiteboardPreviewInnerHTML(block) {
+  const empty = isWhiteboardCardEmpty(block);
+  const drawImg = block.blankDraw
+    ? `<img class="block-whiteboard-thumb" src="${block.blankDraw}" alt="" />`
+    : '';
+  const emptyHint = empty
+    ? '<p class="block-whiteboard-empty-hint">Click to type · Open whiteboard for tables &amp; draw</p>'
+    : '';
+  return `${emptyHint}<div class="block-whiteboard-text-wrap">
+    <div class="block-whiteboard-content block-whiteboard-preview-inner block-content" contenteditable="true" data-field="blank-content" data-placeholder="Type for the class…" spellcheck="true">${block.blankContent || ''}</div>
+  </div>${drawImg}`;
+}
+
+function getWhiteboardPreviewClass(block) {
+  return 'block-whiteboard-preview' + (isWhiteboardCardEmpty(block) ? ' block-whiteboard-preview--empty' : '');
+}
+
+function syncWhiteboardDrawThumb(el, block) {
+  const preview = $('.block-whiteboard-preview', el);
+  if (!preview) return;
+  const thumb = $('.block-whiteboard-thumb', preview);
   if (block.blankDraw) {
-    parts.push(`<img class="block-whiteboard-thumb" src="${block.blankDraw}" alt="" />`);
+    if (thumb) thumb.setAttribute('src', block.blankDraw);
+    else preview.insertAdjacentHTML('beforeend', `<img class="block-whiteboard-thumb" src="${block.blankDraw}" alt="" />`);
+  } else {
+    thumb?.remove();
   }
-  if (!parts.length) {
-    parts.push('<p class="block-whiteboard-empty">Empty — open to type or draw for the class</p>');
-  }
-  return parts.join('');
 }
 
 function updateWhiteboardPreview(block) {
   const el = $(`[data-block-id="${block.id}"]`, canvasInner);
   if (!el || block.type !== 'whiteboard') return;
+  const active = document.activeElement;
+  if (active && el.contains(active) && active.closest('[data-field="blank-content"]')) {
+    syncWhiteboardDrawThumb(el, block);
+    return;
+  }
   const preview = $('.block-whiteboard-preview', el);
-  if (preview) preview.innerHTML = getWhiteboardPreviewHTML(block);
+  if (preview) {
+    preview.className = getWhiteboardPreviewClass(block);
+    preview.innerHTML = getWhiteboardPreviewInnerHTML(block);
+    bindBodyInputs(el, block);
+  }
 }
 
 function getBlankBlock() {
@@ -1826,12 +2101,13 @@ function getBlankContent() {
 }
 
 function setBlankContent(html) {
+  const cleaned = cleanTableColResizeMarkup(html);
   const b = getBlankBlock();
   if (b) {
-    b.blankContent = html;
+    b.blankContent = cleaned;
     updateWhiteboardPreview(b);
   } else {
-    state.blankContent = html;
+    state.blankContent = cleaned;
   }
   persist();
 }
@@ -1951,7 +2227,7 @@ function getBodyHTML(block) {
     }
     case 'whiteboard':
       return `<input class="block-title-input" type="text" value="${title}" placeholder="Whiteboard title" data-field="title" />
-        <div class="block-whiteboard-preview">${getWhiteboardPreviewHTML(block)}</div>`;
+        <div class="${getWhiteboardPreviewClass(block)}">${getWhiteboardPreviewInnerHTML(block)}</div>`;
     default:
       return getTextCardBodyHTML(block, {
         titlePlaceholder: 'Title',
@@ -2249,12 +2525,297 @@ function getLinkEmbedHTML(embedUrl, openUrl, { present = false } = {}) {
 
 function defaultTableHtml() {
   return `<table class="block-table" contenteditable="false">
+    <colgroup><col style="width:33.333%" /><col style="width:33.333%" /><col style="width:33.334%" /></colgroup>
     <thead><tr><th contenteditable="true">Term</th><th contenteditable="true">Topic</th><th contenteditable="true">Notes</th></tr></thead>
     <tbody>
       <tr><td contenteditable="true">1</td><td contenteditable="true"></td><td contenteditable="true"></td></tr>
       <tr><td contenteditable="true">2</td><td contenteditable="true"></td><td contenteditable="true"></td></tr>
     </tbody>
   </table>`;
+}
+
+const TABLE_COL_RESIZE_SKIP_CLASSES = ['bracket-table', 'matrix-table', 'frayer-table'];
+const TABLE_COL_MIN_WIDTH_PX = 48;
+let tableColResizeState = null;
+
+function getTableRowCells(tr) {
+  return [...tr.children].filter((el) => el.matches('th, td'));
+}
+
+function getTableHeaderRow(table) {
+  const theadRow = table.querySelector('thead tr');
+  if (theadRow && getTableRowCells(theadRow).length) return theadRow;
+  const firstBody = table.querySelector('tbody tr');
+  if (firstBody?.querySelector('th')) return firstBody;
+  return null;
+}
+
+function tableSupportsColumnResize(table) {
+  if (!table?.matches('.block-table, .blank-table')) return false;
+  if (table.classList.contains('blank-table')) return false;
+  if (TABLE_COL_RESIZE_SKIP_CLASSES.some((c) => table.classList.contains(c))) return false;
+  const headerRow = getTableHeaderRow(table);
+  if (!headerRow) return false;
+  const cells = getTableRowCells(headerRow);
+  if (cells.length < 1) return false;
+  for (const cell of cells) {
+    const span = parseInt(cell.colSpan, 10) || 1;
+    if (span !== 1 || cell.rowSpan > 1) return false;
+  }
+  const rows = [...table.querySelectorAll('thead tr, tbody tr, tfoot tr')];
+  const n = cells.length;
+  return rows.every((tr) => getTableRowCells(tr).length === n);
+}
+
+function ensureTableColgroup(table) {
+  const headerRow = getTableHeaderRow(table);
+  const n = headerRow ? getTableRowCells(headerRow).length : 0;
+  if (!n) return [];
+
+  table.style.tableLayout = 'fixed';
+  table.style.width = table.style.width || '100%';
+  let colgroup = table.querySelector('colgroup');
+  if (!colgroup) {
+    colgroup = document.createElement('colgroup');
+    table.insertBefore(colgroup, table.firstElementChild);
+  }
+
+  let cols = [...colgroup.querySelectorAll('col')];
+  while (cols.length < n) {
+    const col = document.createElement('col');
+    colgroup.appendChild(col);
+    cols.push(col);
+  }
+  while (cols.length > n) {
+    const extra = cols.pop();
+    extra?.remove();
+  }
+  return cols;
+}
+
+/** Snapshot every column as px from what is on screen (fixes % widths before resize). */
+function getRenderedColWidthsPx(table) {
+  const headerRow = getTableHeaderRow(table);
+  if (!headerRow) return [];
+  const cells = getTableRowCells(headerRow);
+  const widths = cells.map((cell) =>
+    Math.max(TABLE_COL_MIN_WIDTH_PX, Math.round(cell.getBoundingClientRect().width))
+  );
+  const tableW = Math.round(table.getBoundingClientRect().width);
+  const sum = widths.reduce((a, b) => a + b, 0);
+  if (widths.length && sum !== tableW) {
+    const last = widths.length - 1;
+    widths[last] = Math.max(TABLE_COL_MIN_WIDTH_PX, widths[last] + (tableW - sum));
+  }
+  return widths;
+}
+
+function applyColWidthsPx(table, cols, widths) {
+  cols.forEach((col, i) => {
+    col.style.width = `${widths[i]}px`;
+  });
+}
+
+function materializeColWidthsPx(table) {
+  const cols = ensureTableColgroup(table);
+  const widths = getRenderedColWidthsPx(table);
+  applyColWidthsPx(table, cols, widths);
+  return { cols, widths };
+}
+
+/** Dragging the right edge of col i: column i and i+1 trade width (Excel-style). */
+function computeResizedColWidths(startWidths, colIndex, delta) {
+  const min = TABLE_COL_MIN_WIDTH_PX;
+  const widths = [...startWidths];
+  const n = widths.length;
+  if (colIndex < 0 || colIndex >= n) return widths;
+
+  if (colIndex < n - 1) {
+    const pairTotal = startWidths[colIndex] + startWidths[colIndex + 1];
+    let left = startWidths[colIndex] + delta;
+    let right = pairTotal - left;
+    if (left < min) {
+      left = min;
+      right = pairTotal - min;
+    }
+    if (right < min) {
+      right = min;
+      left = pairTotal - min;
+    }
+    widths[colIndex] = Math.round(left);
+    widths[colIndex + 1] = Math.round(right);
+    return widths;
+  }
+
+  widths[colIndex] = Math.max(min, Math.round(startWidths[colIndex] + delta));
+  return widths;
+}
+
+function persistTableLayout(table) {
+  const blockEl = table.closest('[data-block-id]');
+  if (blockEl) {
+    const block = getBlock(blockEl.dataset.blockId);
+    if (block?.type === 'table') {
+      block.tableHtml = serializeTableHtml(table);
+      persist();
+      return;
+    }
+  }
+  const editor = $('#blankEditor');
+  if (editor?.contains(table)) setBlankContent(editor.innerHTML);
+}
+
+function endTableColumnResizeSession() {
+  if (!tableColResizeState) return;
+  const { table, onPersist, changed, pointerId, handleEl } = tableColResizeState;
+  document.removeEventListener('pointermove', onTableColumnResizeMove, true);
+  document.removeEventListener('pointerup', onTableColumnResizeUp, true);
+  document.removeEventListener('pointercancel', onTableColumnResizeUp, true);
+  if (handleEl && pointerId != null) {
+    try {
+      if (handleEl.hasPointerCapture(pointerId)) handleEl.releasePointerCapture(pointerId);
+    } catch {
+      /* ignore */
+    }
+  }
+  handleEl?.classList.remove('table-col-resize--active');
+  tableColResizeState = null;
+  document.body.classList.remove('table-col-resize-active');
+  if (changed) onPersist?.();
+}
+
+function onTableColumnResizeMove(e) {
+  if (!tableColResizeState || e.pointerId !== tableColResizeState.pointerId) return;
+  e.preventDefault();
+  const { table, cols, colIndex, startX, startWidths } = tableColResizeState;
+  const delta = e.clientX - startX;
+  const widths = computeResizedColWidths(startWidths, colIndex, delta);
+  applyColWidthsPx(table, cols, widths);
+  tableColResizeState.changed = true;
+}
+
+function onTableColumnResizeUp(e) {
+  if (!tableColResizeState || e.pointerId !== tableColResizeState.pointerId) return;
+  e.preventDefault();
+  endTableColumnResizeSession();
+}
+
+function startTableColumnResize(e, table, colIndex, onPersist) {
+  if (tableColResizeState) endTableColumnResizeSession();
+  const { cols, widths } = materializeColWidthsPx(table);
+  if (!cols[colIndex]) return;
+
+  const handleEl = e.target.closest('.table-col-resize');
+  const pointerId = e.pointerId;
+  tableColResizeState = {
+    table,
+    cols,
+    colIndex,
+    startX: e.clientX,
+    startWidths: widths,
+    onPersist,
+    changed: false,
+    pointerId,
+    handleEl,
+  };
+  document.body.classList.add('table-col-resize-active');
+  handleEl?.classList.add('table-col-resize--active');
+  try {
+    handleEl?.setPointerCapture(pointerId);
+  } catch {
+    /* ignore */
+  }
+  document.addEventListener('pointermove', onTableColumnResizeMove, true);
+  document.addEventListener('pointerup', onTableColumnResizeUp, true);
+  document.addEventListener('pointercancel', onTableColumnResizeUp, true);
+}
+
+function bindTableColumnResize(table) {
+  if (!table || !tableSupportsColumnResize(table)) return;
+  ensureTableColgroup(table);
+  const headerRow = getTableHeaderRow(table);
+  if (!headerRow) return;
+
+  getTableRowCells(headerRow).forEach((cell, colIndex) => {
+    if (cell.querySelector('.table-col-resize')) return;
+    cell.classList.add('table-col-header');
+    const handle = document.createElement('span');
+    handle.className = 'table-col-resize';
+    handle.setAttribute('role', 'separator');
+    handle.setAttribute('aria-orientation', 'vertical');
+    handle.setAttribute('aria-label', `Resize column ${colIndex + 1}`);
+    handle.title = 'Drag to resize (adjusts this column and the next)';
+    handle.dataset.colIndex = String(colIndex);
+    cell.appendChild(handle);
+  });
+}
+
+function initTableColumnResize() {
+  if (initTableColumnResize.done) return;
+  initTableColumnResize.done = true;
+
+  document.addEventListener(
+    'pointerdown',
+    (e) => {
+      if (e.button !== 0) return;
+      const handle = e.target.closest('.table-col-resize');
+      if (!handle) return;
+      const table = handle.closest('table.block-table, table.blank-table');
+      if (!table || !tableSupportsColumnResize(table)) return;
+      const headerRow = getTableHeaderRow(table);
+      const cell = handle.closest('th, td');
+      if (!headerRow || !cell || cell.parentElement !== headerRow) return;
+      const colIndex = Number(handle.dataset.colIndex);
+      if (!Number.isFinite(colIndex) || colIndex < 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      startTableColumnResize(e, table, colIndex, () => persistTableLayout(table));
+    },
+    true
+  );
+}
+
+function refreshAllTableColumnResizes() {
+  $$('[data-block-id]').forEach((el) => {
+    const block = getBlock(el.dataset.blockId);
+    if (block?.type !== 'table') return;
+    const wrap = $('.block-table-wrap', el);
+    if (wrap) refreshTableColumnResize(wrap);
+  });
+  refreshBlankTableColumnResize();
+}
+
+function cleanTableColResizeMarkup(html) {
+  if (!html?.includes('table-col-resize')) return html;
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  div.querySelectorAll('.table-col-resize').forEach((h) => h.remove());
+  div.querySelectorAll('.table-col-header').forEach((c) => c.classList.remove('table-col-header'));
+  return div.innerHTML;
+}
+
+function serializeTableHtml(table) {
+  if (!table) return '';
+  const clone = table.cloneNode(true);
+  clone.querySelectorAll('.table-col-resize').forEach((h) => h.remove());
+  clone.querySelectorAll('.table-col-header').forEach((c) => c.classList.remove('table-col-header'));
+  clone.className = stripTableColAlignClasses(clone.className);
+  return clone.outerHTML;
+}
+
+function refreshTableColumnResize(root) {
+  if (!root) return;
+  root.querySelectorAll('.block-table, .blank-table').forEach((table) => {
+    table.querySelectorAll('.table-col-resize').forEach((h) => h.remove());
+    table.querySelectorAll('.table-col-header').forEach((c) => c.classList.remove('table-col-header'));
+    bindTableColumnResize(table);
+  });
+}
+
+function refreshBlankTableColumnResize() {
+  const editor = $('#blankEditor');
+  if (!editor) return;
+  refreshTableColumnResize(editor);
 }
 
 function syncLinkPreview(el, block) {
@@ -2323,6 +2884,27 @@ function bindBodyInputs(el, block) {
     };
   }
 
+  const blankContentEl = $('[data-field="blank-content"]', el);
+  if (blankContentEl && block.type === 'whiteboard') {
+    blankContentEl.oninput = () => {
+      block.blankContent = cleanTableColResizeMarkup(blankContentEl.innerHTML);
+      const preview = $('.block-whiteboard-preview', el);
+      if (preview) preview.className = getWhiteboardPreviewClass(block);
+      const hint = $('.block-whiteboard-empty-hint', el);
+      if (isWhiteboardCardEmpty(block)) {
+        if (!hint && preview) {
+          preview.insertAdjacentHTML(
+            'afterbegin',
+            '<p class="block-whiteboard-empty-hint">Click to type · Open whiteboard for tables &amp; draw</p>'
+          );
+        }
+      } else {
+        hint?.remove();
+      }
+      persist();
+    };
+  }
+
   const bloomTaskEl = $('[data-field="bloom-task"]', el);
   if (bloomTaskEl) {
     bloomTaskEl.oninput = () => {
@@ -2359,12 +2941,19 @@ function bindBodyInputs(el, block) {
     };
   });
 
-  const table = $('.block-table', el);
+  const tableWrap = $('.block-table-wrap', el);
+  const table = $('.block-table', tableWrap || el);
   if (table) {
-    table.oninput = () => {
-      block.tableHtml = table.outerHTML;
+    const persistTable = () => {
+      block.tableHtml = serializeTableHtml(table);
+      normalizeTableColAligns(block);
+      syncTableColAlignOnBlock(el, block);
       persist();
     };
+    table.oninput = persistTable;
+    refreshTableColumnResize(tableWrap || el);
+    normalizeTableColAligns(block);
+    syncTableColAlignOnBlock(el, block);
   }
 
   if (block.type === 'poll') {
@@ -2629,6 +3218,22 @@ function bindBlockEvents(el, block) {
       return;
     }
 
+    const tableColAlignBtn = e.target.closest('[data-action="table-col-align"]');
+    if (tableColAlignBtn && block.type === 'table') {
+      e.preventDefault();
+      e.stopPropagation();
+      const colIndex = Number(tableColAlignBtn.dataset.colIndex) || 0;
+      const align = tableColAlignBtn.dataset.textAlign;
+      if (!TABLE_CELL_ALIGNS.includes(align)) return;
+      normalizeTableColAligns(block);
+      if (!block.tableColAligns) block.tableColAligns = ['center'];
+      block.tableColAligns[colIndex] = align;
+      syncTableColAlignOnBlock(el, block);
+      syncBlockFooter(el, block);
+      persist();
+      return;
+    }
+
     const sizeBtn = e.target.closest('[data-action="text-size"]');
     if (sizeBtn && blockUsesTextStyle(block)) {
       e.preventDefault();
@@ -2731,6 +3336,8 @@ function bindBlockEvents(el, block) {
       return;
     }
 
+    if (e.target.closest('.table-col-resize') || tableColResizeState) return;
+
     if (
       e.target.closest(
         'input, textarea, [contenteditable], label, a, .block-footer-btn, .block-footer-segment-btn, .doc-upload-btn, .block-poll, .block-quiz, .worldmap-pin'
@@ -2754,7 +3361,10 @@ function bindBlockEvents(el, block) {
       return;
     }
     el.classList.add('is-editing');
-    const content = $('[data-field="content"]', el) || $('[contenteditable="true"]', el);
+    const content =
+      $('[data-field="blank-content"]', el) ||
+      $('[data-field="content"]', el) ||
+      $('[contenteditable="true"]', el);
     content?.focus();
   });
 
@@ -3097,6 +3707,7 @@ function clearBlockTypeFields(block) {
   block.content = '';
   block.url = '';
   delete block.tableHtml;
+  delete block.tableColAligns;
   delete block.imageData;
   delete block.docData;
   delete block.docName;
@@ -3125,13 +3736,7 @@ function clearBlockTypeFields(block) {
 }
 
 function defaultBrainBreakCategories() {
-  return BRAIN_BREAK_DEFAULT.map((cat) => ({
-    name: cat.name,
-    hint: cat.hint,
-    accent: cat.accent,
-    surface: cat.surface,
-    activities: cat.activities.map((a) => ({ title: a.title, detail: a.detail })),
-  }));
+  return brainBreakLibraryAsCategories();
 }
 
 function normalizeBrainBreakData(block) {
@@ -3140,8 +3745,9 @@ function normalizeBrainBreakData(block) {
     block.brainBreakCategories = defaultBrainBreakCategories();
     return;
   }
+  const library = brainBreakLibraryAsCategories();
   block.brainBreakCategories = block.brainBreakCategories.map((cat, ci) => {
-    const fallback = BRAIN_BREAK_DEFAULT[ci] || BRAIN_BREAK_DEFAULT[0];
+    const fallback = library[ci] || library[0] || { name: '', hint: '', accent: '#64748b', surface: '#f1f5f9', activities: [] };
     const activities = Array.isArray(cat.activities) ? cat.activities : [];
     return {
       name: cat.name || fallback.name,
@@ -3421,9 +4027,9 @@ function worldMapUsesRevealInPresent(block) {
 
 function getMapRevealFooterHTML(block) {
   const on = !block.mapRevealAll;
-  return `<div class="block-footer-reveal" title="${on ? 'Reveal pins one at a time in Present' : 'Show all pins at once in Present'}">
-    <span class="block-footer-reveal-label">Pin reveal</span>
-    <button type="button" class="block-footer-toggle${on ? ' is-on' : ''}" role="switch" aria-checked="${on ? 'true' : 'false'}" aria-label="Pin reveal in Present" data-action="toggle-map-reveal">
+  return `<div class="block-footer-reveal block-footer-reveal--compact" title="${on ? 'Reveal pins one at a time in Present' : 'Show all pins at once in Present'}">
+    <span class="block-footer-reveal-label block-footer-reveal-label--stacked" aria-hidden="true"><span>Pin</span><span>reveal</span></span>
+    <button type="button" class="block-footer-toggle block-footer-toggle--compact${on ? ' is-on' : ''}" role="switch" aria-checked="${on ? 'true' : 'false'}" aria-label="Pin reveal in Present" data-action="toggle-map-reveal">
       <span class="block-footer-toggle-track" aria-hidden="true"><span class="block-footer-toggle-thumb"></span></span>
     </button>
   </div>`;
@@ -3547,7 +4153,7 @@ function getBloomLevelHTML(level, { present = false } = {}) {
 
 function getBloomTaskEditorHTML(block) {
   const task = block.bloomTask || '';
-  return `<div class="bloom-task-editor block-content" contenteditable="true" data-field="bloom-task" data-placeholder="Optional task for students (shown at 26pt below the pyramid in Present)…">${task}</div>`;
+  return `<div class="bloom-task-editor block-content" contenteditable="true" data-field="bloom-task" data-placeholder="Add optional task here">${task}</div>`;
 }
 
 function getBloomPresentTaskHTML(block) {
@@ -3861,6 +4467,7 @@ function applyBlockTypeDefaults(block, type) {
     if (prevType === 'list') block.listRevealAll = !!prevListRevealAll;
   } else if (type === 'table') {
     block.tableHtml = defaultTableHtml();
+    block.tableColAligns = ['center', 'left', 'left'];
     if (block.h < 200) block.h = 240;
   } else if (type === 'note' || type === 'heading') {
     block.content = '<p></p>';
@@ -4375,15 +4982,208 @@ function openHotDialog() {
   }
   hotPickerSelected.clear();
   buildHotRoutineList();
-  try {
-    dialog.showModal();
-  } catch {
-    showToast('Could not open HOT activities');
-  }
+  if (!openDialogNearFab(dialog)) showToast('Could not open HOT activities');
 }
 
 function initHotDialog() {
   buildHotRoutineList();
+}
+
+// --- Brain breaks (Post → Brain breaks) ---
+
+function findBrainBreakActivity(id) {
+  for (const group of getBrainBreakLibrary()) {
+    const activity = group.activities?.find((a) => a.id === id);
+    if (activity) {
+      return {
+        ...activity,
+        categoryName: group.category,
+        hint: group.hint,
+        accent: group.accent,
+        surface: group.surface,
+      };
+    }
+  }
+  return null;
+}
+
+const brainBreakPickerSelected = new Set();
+
+function toggleBrainBreakPicker(activityId) {
+  if (brainBreakPickerSelected.has(activityId)) brainBreakPickerSelected.delete(activityId);
+  else brainBreakPickerSelected.add(activityId);
+  syncBrainBreakPickerUI();
+}
+
+function removeBrainBreakPicker(activityId) {
+  brainBreakPickerSelected.delete(activityId);
+  syncBrainBreakPickerUI();
+}
+
+function syncBrainBreakPickerUI() {
+  $$('#brainBreakRoutineList .hot-routine-item').forEach((btn) => {
+    const id = btn.dataset.activityId;
+    const sel = brainBreakPickerSelected.has(id);
+    btn.classList.toggle('is-picker-selected', sel);
+    btn.setAttribute('aria-pressed', sel ? 'true' : 'false');
+    const rm = btn.querySelector(':scope > .picker-remove');
+    if (sel && !rm) btn.appendChild(createPickerRemoveBtn(() => removeBrainBreakPicker(id)));
+    else if (!sel && rm) rm.remove();
+  });
+  const done = $('#brainBreakPickerDone');
+  if (done) done.disabled = brainBreakPickerSelected.size === 0;
+}
+
+function insertBrainBreakActivity(activityId, opts = {}) {
+  const item = findBrainBreakActivity(activityId);
+  if (!item) {
+    if (!opts.skipToast) showToast('Brain break not found');
+    return null;
+  }
+
+  const accent = getHotRoutineAccent();
+  const anchorId = opts.anchorId !== undefined ? opts.anchorId : selectedId;
+  const anchor = anchorId ? getBlock(anchorId) : null;
+  normalizePresentOrder();
+  const presentOrderBefore = opts.skipUndo ? null : [...state.presentOrder];
+  let insertAt = anchor ? state.presentOrder.indexOf(anchor.id) + 1 : state.presentOrder.length;
+  if (insertAt < 0) insertAt = state.presentOrder.length;
+
+  const w = 360;
+  const h = 300;
+  const pos = getHotCardPosition(anchor, w, h);
+  const maxZ = Math.max(0, ...state.blocks.map((b) => b.z || 0));
+
+  const block = {
+    id: uid(),
+    type: 'brainbreak',
+    x: pos.x,
+    y: pos.y,
+    w: pos.w,
+    h: pos.h,
+    z: maxZ + 1,
+    accent,
+    title: item.title,
+    content: '',
+    brainBreakCategories: [
+      {
+        name: item.categoryName,
+        hint: item.hint,
+        accent: item.accent,
+        surface: item.surface,
+        activities: [{ title: item.title, detail: item.detail }],
+      },
+    ],
+  };
+
+  state.blocks.push(block);
+  pushBlocksClearOfHotCard(block);
+  state.presentOrder.splice(insertAt, 0, block.id);
+
+  if (!opts.skipUndo) {
+    hotInsertUndoStack.push({ insertedIds: [block.id], presentOrder: presentOrderBefore });
+    if (hotInsertUndoStack.length > 12) hotInsertUndoStack.shift();
+    updateUndoButton();
+  }
+
+  selectedId = block.id;
+  if (!opts.skipPersist) persist();
+  if (!opts.skipRender) {
+    render();
+    resizeCanvasToContent();
+  }
+  if (!opts.skipScroll) scrollToHotRoutine(block.id);
+
+  if (!opts.skipToast) showToast(`${item.title} added`);
+  return block.id;
+}
+
+function commitBrainBreakPicker() {
+  const activityIds = [...brainBreakPickerSelected];
+  if (!activityIds.length) return;
+  brainBreakPickerSelected.clear();
+  syncBrainBreakPickerUI();
+
+  normalizePresentOrder();
+  const presentOrderBefore = [...state.presentOrder];
+  const insertedIds = [];
+  let anchorId = selectedId;
+
+  activityIds.forEach((activityId) => {
+    const blockId = insertBrainBreakActivity(activityId, {
+      anchorId,
+      skipUndo: true,
+      skipToast: true,
+      skipRender: true,
+      skipPersist: true,
+      skipScroll: true,
+    });
+    if (blockId) {
+      insertedIds.push(blockId);
+      anchorId = blockId;
+    }
+  });
+
+  if (insertedIds.length) {
+    hotInsertUndoStack.push({ insertedIds, presentOrder: presentOrderBefore });
+    if (hotInsertUndoStack.length > 12) hotInsertUndoStack.shift();
+    updateUndoButton();
+    selectedId = insertedIds[insertedIds.length - 1];
+    persist();
+    render();
+    resizeCanvasToContent();
+    scrollToHotRoutine(selectedId);
+    const n = insertedIds.length;
+    showToast(
+      n === 1
+        ? `${findBrainBreakActivity(activityIds[0])?.title || 'Brain break'} added`
+        : `${n} brain breaks added`
+    );
+  }
+
+  $('#brainBreakDialog')?.close();
+}
+
+function buildBrainBreakRoutineList() {
+  const listEl = $('#brainBreakRoutineList');
+  if (!listEl) return;
+  const groups = getBrainBreakLibrary();
+  listEl.innerHTML = '';
+
+  groups.forEach((group) => {
+    const heading = document.createElement('p');
+    heading.className = 'hot-routine-category';
+    heading.textContent = group.category;
+    listEl.appendChild(heading);
+
+    (group.activities || []).forEach((activity) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'hot-routine-item';
+      btn.dataset.activityId = activity.id;
+      btn.innerHTML = `<span class="hot-routine-icon hot-routine-icon--emoji" aria-hidden="true">⚡</span>
+        <span class="hot-routine-text"><span class="hot-routine-name">${escapeHtml(activity.title)}</span>
+        <span class="hot-routine-meta">${escapeHtml(group.hint)}</span>
+        <span class="hot-routine-blurb">${escapeHtml(activity.detail)}</span></span>`;
+      listEl.appendChild(btn);
+    });
+  });
+  syncBrainBreakPickerUI();
+}
+
+function openBrainBreakDialog() {
+  const dialog = $('#brainBreakDialog');
+  if (!dialog) {
+    showToast('Brain breaks dialog missing');
+    return;
+  }
+  brainBreakPickerSelected.clear();
+  buildBrainBreakRoutineList();
+  if (!openDialogNearFab(dialog)) showToast('Could not open brain breaks');
+}
+
+function initBrainBreakDialog() {
+  buildBrainBreakRoutineList();
 }
 
 function addBlock(type, opts = {}) {
@@ -4639,13 +5439,6 @@ function bindPresentExpand() {
 }
 
 function openPresent(blockId) {
-  const block = getBlock(blockId);
-  if (block?.type === 'whiteboard') {
-    if (presentOverlay && !presentOverlay.hidden) closePresent();
-    openBlank(blockId);
-    return;
-  }
-
   const blocks = getPresentBlocks();
   const idx = blocks.findIndex((b) => b.id === blockId);
   if (idx < 0) return;
@@ -4662,6 +5455,7 @@ function openPresent(blockId) {
   presentExpanded = false;
   presentOverlay.hidden = false;
   document.body.style.overflow = 'hidden';
+  applyPresentBackground();
   updateTimerDisplays();
   void renderPresent();
 
@@ -4672,6 +5466,7 @@ function openPresent(blockId) {
 
 function closePresent() {
   syncPresentEditableFromStage();
+  hidePresentWhiteboard();
   presentExpanded = false;
   presentRevealBlockId = null;
   presentListRevealCount = 1;
@@ -4679,6 +5474,7 @@ function closePresent() {
   presentStage.classList.remove('present-stage--expanded');
   presentOverlay.hidden = true;
   document.body.style.overflow = '';
+  applyPresentBackground();
   updateTimerDisplays();
   if (document.fullscreenElement) {
     document.exitFullscreen().catch(() => {});
@@ -4696,6 +5492,18 @@ async function renderPresent() {
   ensurePresentBrainBreakState(block);
   ensurePresentMapPinState(block);
 
+  if (block.type === 'whiteboard') {
+    const expandBtn = `<button type="button" class="present-expand present-expand--whiteboard" aria-label="Expand to full screen" title="Expand to full screen" aria-pressed="${presentExpanded ? 'true' : 'false'}">${presentExpanded ? PRESENT_RESTORE_ICON : PRESENT_EXPAND_ICON}</button>`;
+    presentStage.innerHTML = expandBtn;
+    syncPresentExpandedChrome();
+    bindPresentExpand();
+    mountPresentWhiteboard(block);
+    presentCounter.textContent = `${presentIndex + 1} / ${blocks.length}`;
+    return;
+  }
+
+  hidePresentWhiteboard();
+
   if (block.type === 'document' && isDocxDocument(block) && block.docData && !block.docPreviewHtml) {
     presentStage.innerHTML =
       '<article class="present-card present-card-loading"><p>Building Word preview…</p></article>';
@@ -4711,6 +5519,7 @@ async function renderPresent() {
     getPresentTextCardStyleClasses(block);
   const titleAttr = block.title ? ` aria-label="${escapeAttr(block.title)}"` : '';
   presentStage.innerHTML = `<article class="present-card${typeClass}"${titleAttr}>${expandBtn}${getPresentHTML(block, { showTitle: shouldShowPresentTitle(block) })}</article>`;
+  applyPresentCardAccent($('.present-card', presentStage), block);
   syncPresentExpandedChrome();
   bindPresentExpand();
   bindPresentListReveal();
@@ -4772,7 +5581,7 @@ function getPresentHTML(block, { showTitle = true } = {}) {
     case 'table': {
       const tableBody = getPresentTextBodyHTML(
         block,
-        block.tableHtml || defaultTableHtml(),
+        applyTableColAlignsToHtml(block, block.tableHtml || defaultTableHtml()),
         'present-body--table'
       );
       const intro = block.content?.trim()
@@ -5361,6 +6170,163 @@ function cleanBlankEditorDom(editor) {
   editor.innerHTML = editor.innerHTML.replace(/&nbsp;/gi, ' ');
 }
 
+function normalizeBlankTableStructure(table) {
+  if (!table?.classList?.contains('blank-table')) return;
+
+  table.setAttribute('contenteditable', 'false');
+  table.closest('.blank-table-block')?.removeAttribute('contenteditable');
+
+  let tbody = table.querySelector('tbody');
+  if (!tbody) {
+    tbody = document.createElement('tbody');
+    [...table.querySelectorAll(':scope > tr')].forEach((tr) => tbody.appendChild(tr));
+    table.appendChild(tbody);
+  }
+
+  const firstBodyRow = tbody.querySelector('tr');
+  const headerCells = firstBodyRow ? getTableRowCells(firstBodyRow) : [];
+  const isHeaderRow =
+    headerCells.length > 0 && headerCells.every((cell) => cell.tagName === 'TH');
+
+  if (isHeaderRow) {
+    let thead = table.querySelector('thead');
+    if (!thead) {
+      thead = document.createElement('thead');
+      table.insertBefore(thead, tbody);
+    }
+    if (firstBodyRow.parentElement === tbody) thead.appendChild(firstBodyRow);
+  }
+
+  table.querySelectorAll('th, td').forEach((cell) => {
+    cell.setAttribute('contenteditable', 'true');
+  });
+  table.querySelectorAll('.table-col-resize').forEach((h) => h.remove());
+  table.querySelectorAll('.table-col-header').forEach((c) => c.classList.remove('table-col-header'));
+}
+
+function normalizeBlankTablesInEditor(editor) {
+  if (!editor) return;
+  editor.querySelectorAll('table.blank-table').forEach(normalizeBlankTableStructure);
+}
+
+function createBlankEditorSurface(editor) {
+  const surface = document.createElement('div');
+  surface.className = 'blank-editor-surface';
+  surface.setAttribute('contenteditable', 'true');
+  surface.setAttribute('spellcheck', 'true');
+  if (editor?.dataset.placeholder) surface.dataset.placeholder = editor.dataset.placeholder;
+  return surface;
+}
+
+function blankEditorFragmentHasContent(frag) {
+  if (!frag) return false;
+  if (frag.textContent?.replace(/\u00a0/g, ' ').trim()) return true;
+  return [...frag.childNodes].some(
+    (n) => n.nodeType === 1 || (n.nodeType === 3 && n.textContent?.trim())
+  );
+}
+
+/** Keep tables outside text surfaces (for th/td typing) while preserving document order. */
+function normalizeBlankEditorStructure(editor) {
+  if (!editor) return;
+  editor.setAttribute('contenteditable', 'false');
+  editor.removeAttribute('spellcheck');
+
+  const items = [];
+  [...editor.childNodes].forEach((node) => {
+    if (node.nodeType === 1 && node.classList?.contains('blank-table-block')) {
+      items.push({ type: 'table', node });
+      return;
+    }
+    if (node.nodeType === 1 && node.classList?.contains('blank-editor-surface')) {
+      items.push({ type: 'surface', node });
+      return;
+    }
+    if (node.nodeType === 3 && !node.textContent?.trim()) {
+      node.remove();
+      return;
+    }
+    items.push({ type: 'orphan', node });
+  });
+
+  editor.innerHTML = '';
+  let surface = null;
+
+  const flushSurface = () => {
+    if (!surface) return;
+    if (!surface.innerHTML.trim()) surface.innerHTML = '<p><br></p>';
+    editor.appendChild(surface);
+    surface = null;
+  };
+
+  items.forEach((item) => {
+    if (item.type === 'table') {
+      flushSurface();
+      editor.appendChild(item.node);
+      return;
+    }
+    if (!surface) surface = createBlankEditorSurface(editor);
+    if (item.type === 'surface') {
+      while (item.node.firstChild) surface.appendChild(item.node.firstChild);
+    } else {
+      surface.appendChild(item.node);
+    }
+  });
+
+  flushSurface();
+  if (!editor.querySelector(':scope > .blank-editor-surface')) {
+    const first = createBlankEditorSurface(editor);
+    first.innerHTML = '<p><br></p>';
+    editor.insertBefore(first, editor.firstChild);
+  }
+
+  normalizeBlankTablesInEditor(editor);
+}
+
+function insertBlankTableAtCursor(editor, tableHtml) {
+  normalizeBlankEditorStructure(editor);
+  const sel = window.getSelection();
+  let surface = editor.querySelector(':scope > .blank-editor-surface');
+
+  if (sel?.rangeCount) {
+    const range = sel.getRangeAt(0);
+    let hostSurface = range.commonAncestorContainer;
+    if (hostSurface.nodeType === 3) hostSurface = hostSurface.parentElement;
+    if (hostSurface?.closest) hostSurface = hostSurface.closest('.blank-editor-surface');
+    if (hostSurface && editor.contains(hostSurface)) surface = hostSurface;
+  }
+
+  if (!surface) {
+    editor.insertAdjacentHTML('beforeend', tableHtml);
+    normalizeBlankEditorStructure(editor);
+    return;
+  }
+
+  if (sel?.rangeCount) {
+    const range = sel.getRangeAt(0);
+    if (surface.contains(range.commonAncestorContainer)) {
+      const tailRange = range.cloneRange();
+      tailRange.collapse(false);
+      const tail = tailRange.extractContents();
+      const tableNode = range.createContextualFragment(tableHtml);
+      surface.parentNode.insertBefore(tableNode, surface.nextSibling);
+
+      if (blankEditorFragmentHasContent(tail)) {
+        const afterSurface = createBlankEditorSurface(editor);
+        afterSurface.appendChild(tail);
+        const tableBlock = surface.nextSibling;
+        surface.parentNode.insertBefore(afterSurface, tableBlock?.nextSibling ?? null);
+      }
+
+      normalizeBlankEditorStructure(editor);
+      return;
+    }
+  }
+
+  editor.insertAdjacentHTML('beforeend', tableHtml);
+  normalizeBlankEditorStructure(editor);
+}
+
 function ensureBlankTableControls(editor) {
   if (!editor) return;
   editor.querySelectorAll('.blank-table-wrap').forEach((wrap) => {
@@ -5372,11 +6338,11 @@ function ensureBlankTableControls(editor) {
     }
     const block = document.createElement('div');
     block.className = 'blank-table-block';
-    block.setAttribute('contenteditable', 'false');
     block.innerHTML = BLANK_TABLE_DELETE_BTN_HTML;
     wrap.parentNode.insertBefore(block, wrap);
     block.appendChild(wrap);
   });
+  normalizeBlankEditorStructure(editor);
 }
 
 function removeBlankTableWrap(wrap) {
@@ -5386,6 +6352,7 @@ function removeBlankTableWrap(wrap) {
   const editor = $('#blankEditor');
   if (editor) {
     cleanBlankEditorDom(editor);
+    normalizeBlankEditorStructure(editor);
     setBlankContent(editor.innerHTML);
   }
   showToast('Table removed');
@@ -5395,45 +6362,80 @@ function buildBlankTableHtml(rows, cols) {
   const r = Math.min(BLANK_TABLE_ROWS_MAX, Math.max(1, Math.round(rows) || 1));
   const c = Math.min(BLANK_TABLE_COLS_MAX, Math.max(1, Math.round(cols) || 1));
   const colPct = (100 / c).toFixed(3);
-  let html = `<div class="blank-table-block" contenteditable="false">${BLANK_TABLE_DELETE_BTN_HTML}<div class="blank-table-wrap"><table class="blank-table"><colgroup>`;
+  let html = `<div class="blank-table-block">${BLANK_TABLE_DELETE_BTN_HTML}<div class="blank-table-wrap"><table class="blank-table" contenteditable="false"><colgroup>`;
   for (let x = 0; x < c; x++) {
     html += `<col style="width:${colPct}%" />`;
   }
-  html += '</colgroup><tbody>';
-  for (let y = 0; y < r; y++) {
+  html += '</colgroup><thead><tr>';
+  for (let x = 0; x < c; x++) {
+    html += '<th contenteditable="true"></th>';
+  }
+  html += '</tr></thead><tbody>';
+  for (let y = 1; y < r; y++) {
     html += '<tr>';
     for (let x = 0; x < c; x++) {
-      const cell = y === 0 ? 'th' : 'td';
-      html += `<${cell} contenteditable="true"></${cell}>`;
+      html += '<td contenteditable="true"></td>';
     }
     html += '</tr>';
   }
-  html += '</tbody></table></div></div><p><br></p>';
+  html += '</tbody></table></div></div>';
   return html;
 }
 
 function insertHtmlIntoBlankEditor(html) {
   const editor = $('#blankEditor');
   if (!editor) return;
-  editor.focus();
+
+  const isTable = html.includes('blank-table-block');
   const sel = window.getSelection();
-  let inserted = false;
-  if (sel && sel.rangeCount > 0) {
-    const range = sel.getRangeAt(0);
-    if (editor.contains(range.commonAncestorContainer)) {
-      range.deleteContents();
-      const frag = range.createContextualFragment(html);
-      range.insertNode(frag);
-      range.collapse(false);
-      sel.removeAllRanges();
-      sel.addRange(range);
-      inserted = true;
+  if (isTable) {
+    insertBlankTableAtCursor(editor, html);
+  } else {
+    normalizeBlankEditorStructure(editor);
+    const surface = editor.querySelector(':scope > .blank-editor-surface');
+    let inserted = false;
+    if (surface) {
+      surface.focus();
+      if (sel && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        if (surface.contains(range.commonAncestorContainer)) {
+          range.deleteContents();
+          const frag = range.createContextualFragment(html);
+          range.insertNode(frag);
+          range.collapse(false);
+          sel.removeAllRanges();
+          sel.addRange(range);
+          inserted = true;
+        }
+      }
+      if (!inserted) surface.insertAdjacentHTML('beforeend', html);
+    } else {
+      editor.insertAdjacentHTML('beforeend', html);
+    }
+    normalizeBlankEditorStructure(editor);
+  }
+  setBlankContent(editor.innerHTML);
+  ensureBlankTableControls(editor);
+  refreshBlankTableColumnResize();
+
+  let wrap = null;
+  if (isTable) {
+    let anchorSurface = editor.querySelector(':scope > .blank-editor-surface');
+    if (sel?.rangeCount) {
+      let node = sel.getRangeAt(0).commonAncestorContainer;
+      if (node.nodeType === 3) node = node.parentElement;
+      const hit = node?.closest?.('.blank-editor-surface');
+      if (hit && editor.contains(hit)) anchorSurface = hit;
+    }
+    const nextBlock = anchorSurface?.nextElementSibling;
+    if (nextBlock?.classList?.contains('blank-table-block')) {
+      wrap = $('.blank-table-wrap', nextBlock);
+    }
+    if (!wrap) {
+      wrap = editor.querySelector('.blank-table-block:last-of-type .blank-table-wrap');
     }
   }
-  if (!inserted) editor.insertAdjacentHTML('beforeend', html);
-  setBlankContent(editor.innerHTML);
-  const wrap = editor.querySelector('.blank-table-block:last-of-type .blank-table-wrap');
-  const firstCell = wrap?.querySelector('th[contenteditable], td[contenteditable]');
+  const firstCell = wrap?.querySelector('thead th[contenteditable], th[contenteditable], td[contenteditable]');
   if (firstCell) {
     firstCell.focus();
     const r = document.createRange();
@@ -5454,6 +6456,10 @@ function insertBlankTableFromControls() {
 function openBlank(blockId) {
   closeFormatMenu();
   closeOutline();
+  if (presentOverlay && !presentOverlay.hidden) {
+    showToast('Exit Present first, or use the whiteboard slide there');
+    return;
+  }
   const overlay = $('#blankOverlay');
   if (!overlay) return;
 
@@ -5481,6 +6487,8 @@ function openBlank(blockId) {
   if (editor && editor.innerHTML !== content) editor.innerHTML = content;
   ensureBlankTableControls(editor);
   cleanBlankEditorDom(editor);
+  normalizeBlankEditorStructure(editor);
+  refreshBlankTableColumnResize();
   const block = blankBlockId ? getBlock(blankBlockId) : null;
   if (block?.type === 'whiteboard') setBlankTab('draw');
   else setBlankTab('type');
@@ -5488,7 +6496,9 @@ function openBlank(blockId) {
   initBlankCanvas();
   requestAnimationFrame(() => {
     resizeBlankCanvas();
-    if (block?.type !== 'whiteboard') editor?.focus();
+    if (block?.type !== 'whiteboard') {
+      editor?.querySelector(':scope > .blank-editor-surface')?.focus();
+    }
   });
 }
 
@@ -5797,6 +6807,7 @@ function initBlankUI() {
   $('#blankEditor')?.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       e.preventDefault();
+      if (presentWhiteboardMounted) return;
       closeBlank();
     }
   });
@@ -6210,6 +7221,8 @@ function buildBoardExportJson() {
     timerSeconds: state.timerSeconds,
     mindMapCenterId: state.mindMapCenterId || null,
     defaultAccent: state.defaultAccent || null,
+    presentUseBoardBackground: !!state.presentUseBoardBackground,
+    presentUseCardColour: !!state.presentUseCardColour,
   };
   return JSON.stringify(data, null, 2);
 }
@@ -6322,6 +7335,8 @@ function importBoard(file) {
         timerSeconds: data.timerSeconds,
         mindMapCenterId: data.mindMapCenterId || null,
         defaultAccent: data.defaultAccent || null,
+        presentUseBoardBackground: data.presentUseBoardBackground,
+        presentUseCardColour: data.presentUseCardColour,
       });
       setTimerDuration(state.timerSeconds || 300);
       selectedId = null;
@@ -6480,17 +7495,74 @@ function openBgDialog() {
   }
 }
 
+const FAB_ANCHORED_DIALOG_IDS = ['addDialog', 'hotDialog', 'brainBreakDialog'];
+const FAB_DIALOG_ANCHOR_GAP = 6;
+
+function clearDialogFabAnchor(dialog) {
+  if (!dialog) return;
+  dialog.classList.remove('dialog--near-fab');
+  ['position', 'margin', 'top', 'left', 'right', 'bottom', 'transform'].forEach((prop) => {
+    dialog.style.removeProperty(prop);
+  });
+}
+
+/** Anchor dialog bottom-right to the + button top-left (short mouse travel). */
+function positionDialogNearFab(dialog) {
+  const fab = $('#fabAdd');
+  if (!fab || !dialog) return;
+
+  dialog.classList.add('dialog--near-fab');
+  dialog.style.margin = '0';
+  dialog.style.position = 'fixed';
+  dialog.style.top = 'auto';
+  dialog.style.left = 'auto';
+  dialog.style.transform = 'none';
+
+  const fabRect = fab.getBoundingClientRect();
+  const gap = FAB_DIALOG_ANCHOR_GAP;
+  dialog.style.right = `${Math.round(window.innerWidth - fabRect.left + gap)}px`;
+  dialog.style.bottom = `${Math.round(window.innerHeight - fabRect.top + gap)}px`;
+
+  requestAnimationFrame(() => {
+    if (!dialog.open) return;
+    const rect = dialog.getBoundingClientRect();
+    const pad = 12;
+    if (rect.top < pad) {
+      const bottom = parseFloat(dialog.style.bottom) || 0;
+      dialog.style.bottom = `${Math.round(bottom + (pad - rect.top))}px`;
+    }
+    if (rect.left < pad) {
+      const right = parseFloat(dialog.style.right) || 0;
+      dialog.style.right = `${Math.round(right + (pad - rect.left))}px`;
+    }
+  });
+}
+
+function openDialogNearFab(dialog) {
+  if (!dialog) return false;
+  try {
+    dialog.showModal();
+    positionDialogNearFab(dialog);
+    return true;
+  } catch (err) {
+    console.error(err);
+    return false;
+  }
+}
+
+function repositionOpenFabAnchoredDialogs() {
+  FAB_ANCHORED_DIALOG_IDS.forEach((id) => {
+    const dialog = document.getElementById(id);
+    if (dialog?.open) positionDialogNearFab(dialog);
+  });
+}
+
 function openAddDialog() {
   const dialog = $('#addDialog');
   if (!dialog) return;
   postPickerSelected.clear();
   syncPostPickerUI();
-  try {
-    dialog.showModal();
-  } catch (err) {
-    console.error(err);
-    showToast('Could not open add dialog');
-  }
+  if (!openDialogNearFab(dialog)) showToast('Could not open add dialog');
 }
 
 function openFilePicker() {
@@ -6572,14 +7644,43 @@ function bindToolbar() {
     });
   });
 
+  $('#brainBreakRoutineList')?.addEventListener('click', (e) => {
+    const item = e.target.closest('.hot-routine-item');
+    if (!item || e.target.closest('.picker-remove')) return;
+    toggleBrainBreakPicker(item.dataset.activityId);
+  });
+
+  $('#brainBreakPickerDone')?.addEventListener('click', commitBrainBreakPicker);
+
+  $$('[data-open-brain-breaks]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      $('#addDialog').close();
+      openBrainBreakDialog();
+    });
+  });
+
   $('#addDialog')?.addEventListener('close', () => {
     postPickerSelected.clear();
     syncPostPickerUI();
+    clearDialogFabAnchor($('#addDialog'));
   });
 
   $('#hotDialog')?.addEventListener('close', () => {
     hotPickerSelected.clear();
     syncHotPickerUI();
+    clearDialogFabAnchor($('#hotDialog'));
+  });
+
+  $('#brainBreakDialog')?.addEventListener('close', () => {
+    brainBreakPickerSelected.clear();
+    syncBrainBreakPickerUI();
+    clearDialogFabAnchor($('#brainBreakDialog'));
+  });
+
+  let fabDialogResizeTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(fabDialogResizeTimer);
+    fabDialogResizeTimer = setTimeout(repositionOpenFabAnchoredDialogs, 80);
   });
 }
 
@@ -6596,7 +7697,7 @@ function hideAllOverlays() {
 function getKeyboardShortcutsHint() {
   return [
     'Present (P)',
-    'Blank (B)',
+    'Whiteboard (B)',
     'Timer (T)',
     'Outline (O)',
     'Esc',
@@ -6624,6 +7725,8 @@ function init() {
     initAlignUI();
     initFormatMenu();
     initHotDialog();
+    initBrainBreakDialog();
+    initTableColumnResize();
     initTemplatesGallery();
     setLayoutSelectValue(state.layoutMode || 'free');
     render();

@@ -53,7 +53,7 @@
           </button>
           <div id="toolsMenu" class="toolbar-dropdown" role="menu" hidden>
             <button type="button" class="toolbar-dropdown-item" data-tool="outline">Lesson outline <kbd>O</kbd></button>
-            <button type="button" class="toolbar-dropdown-item" data-tool="blank">Blank screen <kbd>B</kbd></button>
+            <button type="button" class="toolbar-dropdown-item" data-tool="blank">Whiteboard <kbd>B</kbd></button>
             <button type="button" class="toolbar-dropdown-item" data-tool="timer">Timer <kbd>T</kbd></button>
             <div class="toolbar-dropdown-divider"></div>
             <button type="button" class="toolbar-dropdown-item" data-tool="fit">Fit screen</button>
@@ -124,9 +124,8 @@
       </div>
     </main>
 
-    <button type="button" id="fabAdd" class="fab" aria-label="Add block">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-      <span>Post</span>
+    <button type="button" id="fabAdd" class="fab" aria-label="Add block" title="Add block">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
     </button>
 
     <p class="hint" id="hint"></p>
@@ -173,9 +172,9 @@
           <span class="type-icon bloom">△</span>
           <span class="type-label">Bloom's taxonomy</span>
         </button>
-        <button type="button" class="type-card" data-type="brainbreak">
+        <button type="button" class="type-card" data-open-brain-breaks="1">
           <span class="type-icon brainbreak">⚡</span>
-          <span class="type-label">Brain break</span>
+          <span class="type-label">Brain breaks</span>
         </button>
         <button type="button" class="type-card" data-type="document">
           <span class="type-icon document">📄</span>
@@ -254,6 +253,24 @@
     </div>
   </dialog>
 
+  <dialog id="brainBreakDialog" class="dialog">
+    <div class="dialog-panel dialog-panel-hot">
+      <header class="dialog-header">
+        <h2>Brain breaks</h2>
+        <button type="button" class="btn-icon dialog-close" data-close aria-label="Close">×</button>
+      </header>
+      <p class="hot-dialog-intro">
+        Select one or more brain breaks, then tap Done. Each adds a card you can present one idea at a time.
+      </p>
+      <div class="hot-dialog-step">
+        <div id="brainBreakRoutineList" class="hot-routine-list"></div>
+      </div>
+      <footer class="dialog-footer picker-footer">
+        <button type="button" id="brainBreakPickerDone" class="btn btn-primary" disabled>Done</button>
+      </footer>
+    </div>
+  </dialog>
+
   <dialog id="templatesDialog" class="dialog">
     <div class="dialog-panel dialog-panel-templates">
       <header class="dialog-header">
@@ -297,7 +314,7 @@
           <button type="button" id="blankInsertTable" class="btn btn-ghost btn-sm">Insert table</button>
         </div>
       </div>
-      <div class="blank-editor" id="blankEditor" contenteditable="true" spellcheck="true" data-placeholder="Type for the class…"></div>
+      <div class="blank-editor" id="blankEditor" data-placeholder="Type for the class…"></div>
     </div>
     <div class="blank-pane blank-pane-draw" data-blank-pane="draw" hidden>
       <canvas id="blankCanvas" class="blank-canvas"></canvas>
@@ -351,6 +368,7 @@
   <script src="template-bundled-images.js"></script>
   <script src="templates.js"></script>
   <script src="hot-routines.js"></script>
+  <script src="brain-break-routines.js"></script>
   <script src="app.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mammoth@1.9.0/mammoth.browser.min.js" async></script>
 </body>
