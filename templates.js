@@ -8,6 +8,7 @@
   const BG_FOREST = 'linear-gradient(135deg, #134e4a 0%, #065f46 50%, #047857 100%)';
   const BG_STEM_MATH = 'linear-gradient(160deg, #0c4a6e 0%, #0369a1 42%, #7dd3fc 100%)';
   const BG_STEM_SCI = 'linear-gradient(160deg, #14532d 0%, #15803d 38%, #bbf7d0 100%)';
+  const BG_GALLERY = 'linear-gradient(180deg, #12151c 0%, #1a2332 100%)';
 
   const INVESTIGATION_RESULTS_TABLE = `<table class="block-table">
     <thead><tr><th contenteditable="true">Trial</th><th contenteditable="true">Result (with units)</th></tr></thead>
@@ -44,6 +45,72 @@
   function note(html) {
     return html.startsWith('<') ? html : `<p>${html}</p>`;
   }
+
+  function buildGalleryWalkSpecs(cellCount) {
+    const n = Math.min(10, Math.max(2, cellCount || 6));
+    const specs = [];
+    for (let i = 0; i < n; i++) {
+      specs.push({
+        type: 'image',
+        accent: ['ocean', 'teal', 'mint', 'gold', 'violet', 'coral'][i % 6],
+        galleryStation: true,
+        galleryIndex: i,
+        title: `Station ${i + 1}`,
+        content: '',
+        w: 400,
+        h: 320,
+      });
+    }
+    return specs;
+  }
+
+  function buildMindMapSpecs(branchCount) {
+    const n = Math.min(8, Math.max(3, branchCount || 6));
+    const specs = [
+      {
+        type: 'heading',
+        accent: 'ocean',
+        mindMapCenter: true,
+        title: 'CENTRAL TOPIC',
+        content: '<p style="text-align:center">Replace with your topic or question</p>',
+        w: 480,
+        h: 220,
+      },
+    ];
+    for (let i = 0; i < n; i++) {
+      specs.push({
+        type: 'note',
+        accent: 'gold',
+        branchIndex: i,
+        title: `Idea ${i + 1}`,
+        content: note(i === 0 ? 'First branch — add your thought here' : `Idea ${i + 1}`),
+        w: 280,
+        h: 180,
+      });
+    }
+    return specs;
+  }
+
+  window.PREZ_TEMPLATE_BUILDERS = {
+    'gallery-walk': (opts) => ({
+      board: {
+        title: 'Gallery walk',
+        background: BG_GALLERY,
+        layoutMode: null,
+        galleryWalk: true,
+      },
+      blockSpecs: buildGalleryWalkSpecs(opts?.cellCount),
+    }),
+    'mind-map': (opts) => ({
+      board: {
+        title: 'Mind map',
+        background: BG_PAPER,
+        layoutMode: null,
+        mindMap: true,
+      },
+      blockSpecs: buildMindMapSpecs(opts?.branchCount),
+    }),
+  };
 
   /** Coloured sentence row for source-analysis model paragraphs (board + Present). */
   function saStrip(color, label, text) {
@@ -1438,80 +1505,37 @@
       id: 'mind-map',
       name: 'Mind map',
       description:
-        'Large central topic with idea branches placed clockwise from 12 o’clock. Post adds more branches around the hub.',
+        'Central topic with branches around the hub (choose 3–8). Post adds more branches clockwise from 12 o’clock.',
       category: 'Thinking & collaboration',
       layout: 'mind-map',
-      board: {
-        title: 'Mind map',
-        background: BG_PAPER,
-        layoutMode: null,
-        mindMap: true,
-      },
-      blockSpecs: [
-        {
-          type: 'heading',
-          accent: 'ocean',
-          mindMapCenter: true,
-          title: 'CENTRAL TOPIC',
-          content: '<p style="text-align:center">Replace with your topic or question</p>',
-          w: 480,
-          h: 220,
-        },
-        {
-          type: 'note',
-          accent: 'gold',
-          branchIndex: 0,
-          title: 'Idea 1',
-          content: note('First branch — add your thought here'),
-          w: 280,
-          h: 180,
-        },
-        {
-          type: 'note',
-          accent: 'gold',
-          branchIndex: 1,
-          title: 'Idea 2',
-          content: note('Second branch'),
-          w: 280,
-          h: 180,
-        },
-        {
-          type: 'note',
-          accent: 'gold',
-          branchIndex: 2,
-          title: 'Idea 3',
-          content: note('Third branch'),
-          w: 280,
-          h: 180,
-        },
-        {
-          type: 'note',
-          accent: 'gold',
-          branchIndex: 3,
-          title: 'Idea 4',
-          content: note('Fourth branch'),
-          w: 280,
-          h: 180,
-        },
-        {
-          type: 'note',
-          accent: 'gold',
-          branchIndex: 4,
-          title: 'Idea 5',
-          content: note('Fifth branch'),
-          w: 280,
-          h: 180,
-        },
-        {
-          type: 'note',
-          accent: 'gold',
-          branchIndex: 5,
-          title: 'Idea 6',
-          content: note('Sixth branch'),
-          w: 280,
-          h: 180,
-        },
-      ],
+      configure: { kind: 'branches', min: 3, max: 8, default: 6, label: 'branches' },
+    },
+    {
+      id: 'gallery-walk',
+      name: 'Gallery walk',
+      description:
+        'Large stations across the board — add images, PDFs, or documents per cell. Click a station to view it full screen.',
+      tag: 'New',
+      category: 'Thinking & collaboration',
+      configure: { kind: 'cells', min: 2, max: 10, default: 6, label: 'stations' },
+    },
+    {
+      id: 'task-collaboration-wall',
+      name: 'Task Collaboration Wall',
+      description:
+        'One-screen 2×3 or 2×4 grid — build task clarity with the class, bullet lists, export PDF for students.',
+      tag: 'New',
+      category: 'Thinking & collaboration',
+      configure: { kind: 'task-grid' },
+    },
+    {
+      id: 'feedback-reflection-wall',
+      name: 'Feedback Reflection Wall',
+      description:
+        'Whole-class feedback grid after reviewing drafts or final work — fill live, export PDF handout.',
+      tag: 'New',
+      category: 'Thinking & collaboration',
+      configure: { kind: 'feedback-grid' },
     },
   ];
 })();

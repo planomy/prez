@@ -117,6 +117,10 @@ const GRID_SIZE = 24;
 const DOCUMENT_ACCEPT =
   '.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.rtf,.odt,.ods,.odp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
+/** Gallery walk — PDF first for clearer file-picker filtering */
+const GALLERY_DOC_ACCEPT =
+  '.pdf,application/pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.rtf,.odt,.ods,.odp,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
 const MAX_DOCUMENT_BYTES = 12 * 1024 * 1024;
 const MAX_BACKGROUND_BYTES = 5 * 1024 * 1024;
 
@@ -146,6 +150,8 @@ const DEFAULTS = {
   blankDraw: null,
   timerSeconds: 300,
   mindMapCenterId: null,
+  boardTemplate: null,
+  gridWall: null,
   defaultAccent: null,
   presentUseBoardBackground: false,
   presentUseCardColour: false,
@@ -153,6 +159,15 @@ const DEFAULTS = {
 
 const MIND_MAP_BRANCH = { w: 280, h: 180, accent: 'gold' };
 const MIND_MAP_HUB = { w: 480, h: 220, accent: 'ocean' };
+const ASSESSMENT_STAGE_HEADERS = [
+  'Understand the task',
+  'Plan your approach',
+  'Gather evidence / resources',
+  'Draft your response',
+  'Check against the criteria',
+];
+
+let pendingTemplateApply = null;
 
 /** Bloom's taxonomy — top (Create) to bottom (Remember). */
 const BLOOM_LEVELS_DEFAULT = [
@@ -324,7 +339,8 @@ const FOOTER_ICON_IMAGE = `<svg ${FOOTER_SVG_ATTRS}><rect x="3" y="5" width="18"
 const FOOTER_ICON_REPLACE = `<svg ${FOOTER_SVG_ATTRS}><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>`;
 const FOOTER_ICON_REMOVE = `<svg ${FOOTER_SVG_ATTRS}><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`;
 
-function getPresentFooterButtonHTML() {
+function getPresentFooterButtonHTML(block) {
+  if (block?.galleryStation) return '';
   return `<button type="button" class="btn-present-block block-footer-btn-icon" data-action="present" title="Present (P)" aria-label="Present">${FOOTER_ICON_PRESENT}</button>`;
 }
 
@@ -570,6 +586,11 @@ function normalizeBoardState(data) {
   if (merged.mindMapCenterId && !ids.has(merged.mindMapCenterId)) {
     merged.mindMapCenterId = null;
   }
+  merged.boardTemplate = merged.boardTemplate || null;
+  merged.gridWall = normalizeGridWallState(merged.gridWall);
+  if (merged.gridWall && !merged.boardTemplate) {
+    merged.boardTemplate = merged.gridWall.variant;
+  }
   if (merged.defaultAccent && !ACCENTS.includes(merged.defaultAccent)) {
     merged.defaultAccent = null;
   }
@@ -743,9 +764,20 @@ function syncBoardTitle() {
   }
 }
 
+function isGridWallBoard() {
+  return !!state.gridWall && (state.boardTemplate === 'task-collaboration-wall' || state.boardTemplate === 'feedback-reflection-wall');
+}
+
 function render() {
   syncBoardTitle();
   applyBackground();
+  syncGridWallChrome();
+
+  if (isGridWallBoard()) {
+    renderGridWallBoard();
+    return;
+  }
+  hideGridWallSurface();
 
   const existing = new Set($$('[data-block-id]', canvasInner).map((el) => el.dataset.blockId));
   const current = new Set(state.blocks.map((b) => b.id));
@@ -769,6 +801,7 @@ function render() {
   updateEmptyState();
   resizeCanvasToContent();
   updateAlignToolbar();
+  syncBoardTemplateBar();
   if (!$('#outlinePanel')?.hidden) renderOutline();
   refreshAllTableColumnResizes();
   persist();
@@ -831,6 +864,10 @@ function createBlockElement(block) {
   if (state.mindMapCenterId && block.id === state.mindMapCenterId) {
     el.classList.add('block--mind-map-hub');
   }
+  if (block.galleryStation) el.classList.add('block--gallery-station');
+  if (block.assessmentTask) el.classList.add('block--assessment-task');
+  if (block.assessmentStage) el.classList.add('block--assessment-stage');
+  if (block.reflectionColumn) el.classList.add('block--reflection-column');
   if (block.type === 'sticky') el.classList.add('block--sticky');
   el.dataset.blockId = block.id;
   el.dataset.blockType = block.type;
@@ -872,7 +909,7 @@ function createBlockElement(block) {
     </header>
     <div class="block-body"></div>
     <footer class="block-footer">
-      ${getPresentFooterButtonHTML()}
+      ${getPresentFooterButtonHTML(block)}
     </footer>
     <span class="resize-handle resize-se" data-resize="se"></span>
     <span class="resize-handle resize-e" data-resize="e"></span>
@@ -1305,6 +1342,7 @@ function initToolbarMenus() {
     if (action === 'templates') openTemplatesDialog();
     else if (action === 'new') newBoard();
     else if (action === 'open') openFilePicker();
+    else if (action === 'grid-wall-pdf') exportGridWallPdf();
   });
 
   initSaveAsButton();
@@ -1942,6 +1980,11 @@ function updateBlockElement(el, block) {
   applyAccentStyles(el, block.accent);
   el.dataset.blockType = block.type;
   el.classList.toggle('block--sticky', block.type === 'sticky');
+  el.classList.toggle('block--gallery-station', !!block.galleryStation);
+  el.classList.toggle('is-gallery-viewable', !!block.galleryStation && galleryStationHasMedia(block));
+  el.classList.toggle('block--assessment-task', !!block.assessmentTask);
+  el.classList.toggle('block--assessment-stage', !!block.assessmentStage);
+  el.classList.toggle('block--reflection-column', !!block.reflectionColumn);
 
   const active = document.activeElement;
   if (
@@ -2025,6 +2068,26 @@ function syncBlockFooter(el, block) {
     }
     primary.push(getMapRevealFooterHTML(block));
   }
+  if (block.galleryStation) {
+    if (galleryStationHasMedia(block)) {
+      primary.push(
+        '<button type="button" class="block-footer-btn" data-action="gallery-view">View full screen</button>'
+      );
+    }
+    if (block.type === 'image') {
+      primary.push(
+        `<label class="block-footer-btn">${galleryStationHasMedia(block) ? 'Replace image' : 'Add image'}<input type="file" accept="image/*" data-field="image" hidden /></label>`
+      );
+      primary.push(
+        `<label class="block-footer-btn">Add PDF / document<input type="file" accept="${GALLERY_DOC_ACCEPT}" data-field="gallery-document" hidden /></label>`
+      );
+    } else if (block.type === 'document') {
+      primary.push(getDocumentFooterActionsHTML(block));
+      primary.push(
+        `<label class="block-footer-btn">Add image<input type="file" accept="image/*" data-field="gallery-image-replace" hidden /></label>`
+      );
+    }
+  }
 
   const rows = [];
   if (primary.length) {
@@ -2034,7 +2097,7 @@ function syncBlockFooter(el, block) {
     rows.push(`<div class="block-footer-secondary">${secondary.join('')}</div>`);
   }
   const start = rows.length ? `<div class="block-footer-start">${rows.join('')}</div>` : '';
-  footer.innerHTML = `${start}${getPresentFooterButtonHTML()}`;
+  footer.innerHTML = `${start}${getPresentFooterButtonHTML(block)}`;
   footer.classList.toggle('block-footer--stacked', secondary.length > 0);
 }
 
@@ -2162,6 +2225,7 @@ function getBodyHTML(block) {
         <div class="block-content ${styleCls}" contenteditable="true" data-field="content" data-placeholder="Add subtitle or notes…">${block.content || ''}</div>`;
     }
     case 'image': {
+      if (block.galleryStation) return getGalleryStationBodyHTML(block, title);
       const imagePrompts = block.content?.trim()
         ? `<div class="block-image-prompts block-content" contenteditable="true" data-field="content" data-placeholder="Add prompts below the source…">${block.content}</div>`
         : '';
@@ -2176,6 +2240,7 @@ function getBodyHTML(block) {
           </div>`;
     }
     case 'document':
+      if (block.galleryStation) return getGalleryStationDocumentBodyHTML(block, title);
       return getDocumentBodyHTML(block, title);
     case 'link': {
       const embedUrl = getLinkEmbedUrl(block.url);
@@ -2316,6 +2381,90 @@ function isAllowedDocument(file) {
     return true;
   }
   if (file.type.startsWith('application/vnd.') || file.type === 'application/msword') return true;
+  return false;
+}
+
+function getGalleryStationEmptyHTML(block, title) {
+  const label = escapeHtml(block.title || title || 'Station');
+  const titleField = `<input class="block-title-input" type="text" value="${title}" placeholder="Station title" data-field="title" />`;
+  return `${titleField}
+    <div class="gallery-station-empty" data-gallery-empty>
+      <p class="gallery-station-empty-label">${label}</p>
+      <p>Image, PDF, or document</p>
+      <div class="gallery-station-empty-actions">
+        <label class="gallery-station-btn"><input type="file" accept="image/*" data-field="image" /> Image</label>
+        <label class="gallery-station-btn"><input type="file" accept="${GALLERY_DOC_ACCEPT}" data-field="gallery-document" /> PDF / document</label>
+      </div>
+    </div>`;
+}
+
+function getGalleryStationBodyHTML(block, title) {
+  if (!block.imageData) return getGalleryStationEmptyHTML(block, title);
+  const titleField = `<input class="block-title-input" type="text" value="${title}" placeholder="Station title" data-field="title" />`;
+  return `${titleField}<div class="block-image-wrap"><img src="${block.imageData}" alt="${title || 'Station'}" /></div>`;
+}
+
+function getGalleryStationDocumentBodyHTML(block, title) {
+  if (!block.docData) return getGalleryStationEmptyHTML(block, title);
+  const titleField = `<input class="block-title-input" type="text" value="${title}" placeholder="Station title" data-field="title" />`;
+  const kind = getDocKind(block);
+  const name = escapeHtml(block.docName || 'Document');
+
+  if (isPdfDocument(block)) {
+    return `${titleField}
+      <div class="block-doc-preview block-doc-preview-pdf">
+        <iframe src="${block.docData}#toolbar=0" title="${name}" class="doc-iframe"></iframe>
+      </div>`;
+  }
+
+  if (isDocxDocument(block) && block.docPreviewHtml) {
+    return `${titleField}
+      <div class="block-doc-preview block-doc-preview-docx">
+        <div class="docx-preview-content">${block.docPreviewHtml}</div>
+      </div>`;
+  }
+
+  if (isDocxDocument(block) && block.docData) {
+    return `${titleField}
+      <div class="block-doc-preview block-doc-preview-docx block-doc-preview-loading">
+        <p>Building Word preview…</p>
+      </div>`;
+  }
+
+  return `${titleField}
+    <div class="block-doc-card" style="--doc-color:${kind.color};--doc-bg:${kind.bg}">
+      <div class="doc-file-icon">${escapeHtml((kind.key || 'doc').slice(0, 4).toUpperCase())}</div>
+      <p class="doc-file-kind">${escapeHtml(kind.label)}</p>
+      <p class="doc-filename">${name}</p>
+    </div>`;
+}
+
+function galleryStationHasMedia(block) {
+  if (!block?.galleryStation) return false;
+  if (block.type === 'image') return !!block.imageData;
+  if (block.type === 'document') return !!block.docData;
+  return false;
+}
+
+function applyGalleryStationFile(file, block, el) {
+  if (!file || !block?.galleryStation) return false;
+  if (file.type.startsWith('image/')) {
+    if (block.type === 'document') {
+      block.type = 'image';
+      delete block.docData;
+      delete block.docName;
+      delete block.docMime;
+      delete block.docPreviewHtml;
+    }
+    readImageFile(file, block, el);
+    return true;
+  }
+  if (isAllowedDocument(file)) {
+    if (block.type === 'image') block.type = 'document';
+    readDocumentFile(file, block, el);
+    return true;
+  }
+  showToast('Use an image or PDF / document');
   return false;
 }
 
@@ -2941,6 +3090,40 @@ function bindBodyInputs(el, block) {
     };
   });
 
+  $$('[data-field="gallery-document"]', el).forEach((docInput) => {
+    docInput.onchange = () => {
+      const file = docInput.files?.[0];
+      if (!file) return;
+      applyGalleryStationFile(file, block, el);
+      docInput.value = '';
+    };
+  });
+
+  $$('[data-field="gallery-image-replace"]', el).forEach((fileInput) => {
+    fileInput.onchange = () => {
+      const file = fileInput.files?.[0];
+      if (!file) return;
+      const preserved = {
+        galleryStation: block.galleryStation,
+        galleryIndex: block.galleryIndex,
+        title: block.title,
+        accent: block.accent,
+        x: block.x,
+        y: block.y,
+        w: block.w,
+        h: block.h,
+      };
+      block.type = 'image';
+      delete block.docData;
+      delete block.docName;
+      delete block.docMime;
+      delete block.docPreviewHtml;
+      readImageFile(file, block, el);
+      Object.assign(block, preserved);
+      fileInput.value = '';
+    };
+  });
+
   const tableWrap = $('.block-table-wrap', el);
   const table = $('.block-table', tableWrap || el);
   if (table) {
@@ -3196,6 +3379,13 @@ function bindBlockEvents(el, block) {
       return;
     }
 
+    if (e.target.closest('[data-action="gallery-view"]')) {
+      e.preventDefault();
+      e.stopPropagation();
+      openGalleryViewer(block.id);
+      return;
+    }
+
     if (e.target.closest('[data-action="remove-image"]')) {
       e.preventDefault();
       e.stopPropagation();
@@ -3340,10 +3530,15 @@ function bindBlockEvents(el, block) {
 
     if (
       e.target.closest(
-        'input, textarea, [contenteditable], label, a, .block-footer-btn, .block-footer-segment-btn, .doc-upload-btn, .block-poll, .block-quiz, .worldmap-pin'
+        'input, textarea, [contenteditable], label, a, .block-footer-btn, .block-footer-segment-btn, .doc-upload-btn, .block-poll, .block-quiz, .worldmap-pin, .gallery-station-btn'
       )
     ) {
       if (selectedId !== block.id) selectBlock(block.id);
+      return;
+    }
+
+    if (block.galleryStation && galleryStationHasMedia(block) && !e.target.closest('.block-header-actions')) {
+      openGalleryViewer(block.id);
       return;
     }
 
@@ -3397,17 +3592,24 @@ function bindBlockEvents(el, block) {
     el.addEventListener('dragover', (e) => {
       if ([...e.dataTransfer.types].includes('Files')) {
         e.preventDefault();
-        el.classList.add('is-img-dragover');
+        el.classList.add(block.galleryStation ? 'is-file-dragover' : 'is-img-dragover');
       }
     });
     el.addEventListener('dragleave', (e) => {
-      if (!el.contains(e.relatedTarget)) el.classList.remove('is-img-dragover');
+      if (!el.contains(e.relatedTarget)) {
+        el.classList.remove('is-img-dragover', 'is-file-dragover');
+      }
     });
     el.addEventListener('drop', (e) => {
       e.preventDefault();
-      el.classList.remove('is-img-dragover');
+      el.classList.remove('is-img-dragover', 'is-file-dragover');
       const file = e.dataTransfer.files?.[0];
-      if (file?.type.startsWith('image/')) readImageFile(file, block, el);
+      if (!file) return;
+      if (block.galleryStation) {
+        applyGalleryStationFile(file, block, el);
+        return;
+      }
+      if (file.type.startsWith('image/')) readImageFile(file, block, el);
     });
   }
 
@@ -4591,7 +4793,7 @@ function getMindMapPlacement(branchIndex, slotCount, centerBlock) {
   const cx = center.x + center.w / 2;
   const cy = center.y + center.h / 2;
   const radius = Math.max(center.w, center.h) * 0.55 + 150;
-  const slots = Math.max(6, slotCount);
+  const slots = Math.max(3, slotCount);
   const angle = -Math.PI / 2 + (branchIndex * 2 * Math.PI) / slots;
   const { w, h } = MIND_MAP_BRANCH;
 
@@ -4621,7 +4823,7 @@ function positionMindMapBranches(blocks, centerId) {
   const branches = blocks
     .filter((b) => b.id !== centerId)
     .sort((a, b) => (a.branchIndex ?? 0) - (b.branchIndex ?? 0));
-  const slots = Math.max(6, branches.length);
+  const slots = Math.max(3, branches.length);
 
   branches.forEach((branch, i) => {
     const place = getMindMapPlacement(i, slots, center);
@@ -4644,6 +4846,216 @@ function layoutMindMapBlocks(blocks, centerId) {
   }
   centerMindMapHub(blocks, centerId);
   positionMindMapBranches(blocks, centerId);
+}
+
+function pickGalleryGridDimensions(n) {
+  let best = { cols: 1, rows: n, score: -1 };
+  for (let cols = 1; cols <= n; cols++) {
+    const rows = Math.ceil(n / cols);
+    const aspect = cols / rows;
+    const squareness = 1 - Math.abs(aspect - 1.15);
+    const score = squareness * 100 - Math.abs(cols - rows) * 4;
+    if (score > best.score) best = { cols, rows, score };
+  }
+  return best;
+}
+
+function layoutGalleryWalkStations(blocks) {
+  const stations = blocks
+    .filter((b) => b.galleryStation)
+    .sort((a, b) => (a.galleryIndex ?? 0) - (b.galleryIndex ?? 0));
+  const n = stations.length;
+  if (!n) return;
+
+  const { usableW, usableH, pad, gap } = getViewportLayoutMetrics();
+  const { cols, rows } = pickGalleryGridDimensions(n);
+  const cellW = Math.floor((usableW - (cols - 1) * gap) / cols);
+  const cellH = Math.floor((usableH - (rows - 1) * gap) / rows);
+
+  stations.forEach((block, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    block.w = cellW;
+    block.h = cellH;
+    block.x = pad + col * (cellW + gap);
+    block.y = pad + row * (cellH + gap);
+    block.z = i + 1;
+  });
+}
+
+function getAssessmentStages(blocks) {
+  return blocks
+    .filter((b) => b.assessmentStage)
+    .sort((a, b) => (a.assessmentStageIndex ?? 0) - (b.assessmentStageIndex ?? 0));
+}
+
+function layoutAssessmentCollab(blocks) {
+  const task = blocks.find((b) => b.assessmentTask);
+  const stages = getAssessmentStages(blocks);
+  const { usableW, usableH, pad, gap } = getViewportLayoutMetrics();
+  const rowW = usableW;
+  let y = pad;
+
+  if (task) {
+    task.w = rowW;
+    task.h = Math.max(160, Math.min(240, task.h || 200));
+    task.x = pad;
+    task.y = y;
+    task.z = 1;
+    y += task.h + gap;
+  }
+
+  const remaining = usableH - y - pad - Math.max(0, stages.length - 1) * gap;
+  const stageH = stages.length ? Math.max(100, Math.floor(remaining / stages.length)) : 140;
+
+  stages.forEach((block, i) => {
+    block.w = rowW;
+    block.h = stageH;
+    block.x = pad;
+    block.y = y;
+    block.z = (task ? 2 : 1) + i;
+    block.assessmentStageIndex = i;
+    y += block.h + gap;
+  });
+}
+
+function layoutReflectionWall(blocks) {
+  const columns = blocks
+    .filter((b) => b.reflectionColumn)
+    .sort((a, b) => (a.reflectionColumnIndex ?? 0) - (b.reflectionColumnIndex ?? 0));
+  const n = columns.length;
+  if (!n) return;
+
+  const { usableW, usableH, pad, gap } = getViewportLayoutMetrics();
+  const colW = Math.floor((usableW - (n - 1) * gap) / n);
+  const colH = usableH;
+
+  columns.forEach((block, i) => {
+    block.w = colW;
+    block.h = colH;
+    block.x = pad + i * (colW + gap);
+    block.y = pad;
+    block.z = i + 1;
+    block.reflectionColumnIndex = i;
+  });
+}
+
+function syncBoardTemplateBar() {
+  const bar = $('#boardTemplateBar');
+  if (!bar) return;
+  const show = state.boardTemplate === 'assessment-collaborator';
+  bar.hidden = !show;
+  if (show) bar.removeAttribute('hidden');
+  else bar.setAttribute('hidden', '');
+}
+
+function addAssessmentStage() {
+  const stages = getAssessmentStages(state.blocks);
+  if (stages.length >= 10) {
+    showToast('Maximum 10 stages');
+    return;
+  }
+  const title = ASSESSMENT_STAGE_HEADERS[stages.length] || `Stage ${stages.length + 1}`;
+  const block = {
+    id: uid(),
+    type: 'note',
+    x: LAYOUT_PAD,
+    y: LAYOUT_PAD,
+    w: 400,
+    h: 140,
+    z: state.blocks.length + 1,
+    accent: ACCENTS[stages.length % ACCENT_DARK.length],
+    title,
+    content: '<p><br></p>',
+    assessmentStage: true,
+    assessmentStageIndex: stages.length,
+    presentEditable: true,
+  };
+  state.blocks.push(block);
+  state.presentOrder.push(block.id);
+  layoutAssessmentCollab(state.blocks);
+  selectedId = block.id;
+  render();
+  showToast('Stage added');
+}
+
+function removeAssessmentStage() {
+  const stages = getAssessmentStages(state.blocks);
+  if (stages.length <= 2) {
+    showToast('Need at least 2 stages');
+    return;
+  }
+  let target = stages[stages.length - 1];
+  if (selectedId) {
+    const sel = getBlock(selectedId);
+    if (sel?.assessmentStage) target = sel;
+  }
+  if (!confirm(`Remove “${target.title || 'this stage'}”?`)) return;
+  state.blocks = state.blocks.filter((b) => b.id !== target.id);
+  state.presentOrder = state.presentOrder.filter((id) => id !== target.id);
+  getAssessmentStages(state.blocks).forEach((b, i) => {
+    b.assessmentStageIndex = i;
+  });
+  if (selectedId === target.id) selectedId = null;
+  layoutAssessmentCollab(state.blocks);
+  render();
+  showToast('Stage removed');
+}
+
+async function openGalleryViewer(blockId) {
+  const block = getBlock(blockId);
+  if (!block || !galleryStationHasMedia(block)) return;
+
+  const overlay = $('#galleryViewerOverlay');
+  const stage = $('#galleryViewerStage');
+  const caption = $('#galleryViewerCaption');
+  if (!overlay || !stage) return;
+
+  stage.innerHTML = '<p class="gallery-viewer-loading">Loading…</p>';
+  caption.textContent = block.title || '';
+
+  if (block.type === 'image' && block.imageData) {
+    stage.innerHTML = `<img src="${block.imageData}" alt="${escapeAttr(block.title || 'Station')}" />`;
+  } else if (block.type === 'document' && block.docData) {
+    const name = escapeHtml(block.docName || 'Document');
+    if (isPdfDocument(block)) {
+      stage.innerHTML = `<div class="gallery-viewer-pdf"><iframe src="${block.docData}" title="${name}"></iframe></div>`;
+    } else if (isDocxDocument(block)) {
+      if (!block.docPreviewHtml) await ensureDocxPreview(block);
+      if (block.docPreviewHtml) {
+        stage.innerHTML = `<div class="gallery-viewer-docx">${block.docPreviewHtml}</div>`;
+      } else {
+        stage.innerHTML = `<div class="gallery-viewer-doc-card"><p>Preview unavailable — open the file from the card footer.</p></div>`;
+      }
+    } else {
+      const kind = getDocKind(block);
+      stage.innerHTML = `<div class="gallery-viewer-doc-card">
+        <div class="doc-file-icon">${escapeHtml((kind.key || 'doc').slice(0, 4).toUpperCase())}</div>
+        <p><strong>${escapeHtml(kind.label)}</strong></p>
+        <p>${name}</p>
+        <p>Use Download on the station card to open this file.</p>
+      </div>`;
+    }
+  }
+
+  overlay.hidden = false;
+  overlay.removeAttribute('hidden');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeGalleryViewer() {
+  const overlay = $('#galleryViewerOverlay');
+  if (!overlay) return;
+  overlay.hidden = true;
+  overlay.setAttribute('hidden', '');
+  document.body.style.overflow = '';
+}
+
+function applyTemplateLayout(templateId, blocks, centerId) {
+  if (templateId === 'gallery-walk') layoutGalleryWalkStations(blocks);
+  else if (templateId === 'assessment-collaborator') layoutAssessmentCollab(blocks);
+  else if (templateId === 'reflection-wall') layoutReflectionWall(blocks);
+  else if (templateId === 'mind-map' && centerId) layoutMindMapBlocks(blocks, centerId);
 }
 
 // --- HOT activity routines (Post → HOT activity) ---
@@ -5232,7 +5644,12 @@ function addBlock(type, opts = {}) {
 
   if (state.mindMapCenterId && block.id !== state.mindMapCenterId) {
     const branchIndex = getMindMapBranchCount();
-    const place = getMindMapPlacement(branchIndex, Math.max(6, branchIndex + 1));
+    const center = getMindMapCenterBlock();
+    const place = getMindMapPlacement(
+      branchIndex,
+      Math.max(3, getMindMapBranchCount() + 1),
+      center
+    );
     if (place) {
       block.x = place.x;
       block.y = place.y;
@@ -5398,6 +5815,7 @@ function readDocumentFile(file, block, el) {
     }
 
     persist();
+    if (block.galleryStation) render();
   };
   reader.onerror = () => showToast('Could not read file');
   reader.readAsDataURL(file);
@@ -5439,6 +5857,10 @@ function bindPresentExpand() {
 }
 
 function openPresent(blockId) {
+  if (isGridWallBoard()) {
+    openPresentGridWall();
+    return;
+  }
   const blocks = getPresentBlocks();
   const idx = blocks.findIndex((b) => b.id === blockId);
   if (idx < 0) return;
@@ -5870,12 +6292,19 @@ function removeFromPresentOrder(id) {
 }
 
 function deleteBlock(id) {
-  if (!getBlock(id)) return;
+  const removed = getBlock(id);
+  if (!removed) return;
   if (blankBlockId === id) closeBlank();
   if (state.mindMapCenterId === id) state.mindMapCenterId = null;
   state.blocks = state.blocks.filter((b) => b.id !== id);
   removeFromPresentOrder(id);
   if (selectedId === id) selectedId = null;
+  if (state.boardTemplate === 'assessment-collaborator' && removed.assessmentStage) {
+    getAssessmentStages(state.blocks).forEach((b, i) => {
+      b.assessmentStageIndex = i;
+    });
+    layoutAssessmentCollab(state.blocks);
+  }
   persist();
   render();
   showToast('Card deleted');
@@ -7012,12 +7441,217 @@ function instantiateTemplateBlock(spec, index) {
   if (spec.url) block.url = spec.url;
   if (spec.mindMapCenter) block.mindMapCenter = true;
   if (spec.branchIndex != null) block.branchIndex = spec.branchIndex;
+  if (spec.galleryStation) block.galleryStation = true;
+  if (spec.galleryIndex != null) block.galleryIndex = spec.galleryIndex;
+  if (spec.assessmentTask) block.assessmentTask = true;
+  if (spec.assessmentStage) block.assessmentStage = true;
+  if (spec.assessmentStageIndex != null) block.assessmentStageIndex = spec.assessmentStageIndex;
+  if (spec.reflectionColumn) block.reflectionColumn = true;
+  if (spec.reflectionColumnIndex != null) block.reflectionColumnIndex = spec.reflectionColumnIndex;
   if (spec.listRevealAll != null) block.listRevealAll = spec.listRevealAll;
   if (spec.imageData) block.imageData = spec.imageData;
   return block;
 }
 
-function applyBoardTemplate(templateId) {
+function normalizeGridWallState(gridWall) {
+  if (!gridWall || !gridWall.variant || !Array.isArray(gridWall.cells)) return null;
+  const cols = gridWall.cols === 4 ? 4 : 3;
+  const rows = 2;
+  const expected = rows * cols;
+  const cells = gridWall.cells.slice(0, expected).map((c) => ({
+    title: c.title || '',
+    content: c.content || '<ul><li></li><li></li><li></li></ul>',
+  }));
+  while (cells.length < expected) {
+    cells.push({
+      title: `Section ${cells.length + 1}`,
+      content: '<ul><li></li><li></li><li></li></ul>',
+    });
+  }
+  return {
+    variant: gridWall.variant,
+    rows,
+    cols,
+    feedbackMode: gridWall.feedbackMode === 'final' ? 'final' : gridWall.feedbackMode === 'drafts' ? 'drafts' : null,
+    cells,
+  };
+}
+
+function hideGridWallSurface() {
+  canvasWrap?.classList.remove('canvas-wrap--grid-wall');
+  const surface = $('#gridWallSurface');
+  if (surface) {
+    surface.hidden = true;
+    surface.setAttribute('hidden', '');
+  }
+  const fab = $('#fabAdd');
+  if (fab) {
+    fab.hidden = false;
+    fab.removeAttribute('hidden');
+  }
+}
+
+function syncGridWallChrome() {
+  const show = isGridWallBoard();
+  document.body.classList.toggle('grid-wall-active', show);
+  const pdfBtn = $('#btnGridWallPdf');
+  const filePdf = $('#fileMenuGridWallPdf');
+  const fileDiv = $('#fileMenuGridWallDivider');
+  if (pdfBtn) {
+    pdfBtn.hidden = !show;
+    if (show) pdfBtn.removeAttribute('hidden');
+    else pdfBtn.setAttribute('hidden', '');
+  }
+  if (filePdf) {
+    filePdf.hidden = !show;
+    if (show) filePdf.removeAttribute('hidden');
+    else filePdf.setAttribute('hidden', '');
+  }
+  if (fileDiv) {
+    fileDiv.hidden = !show;
+    if (show) fileDiv.removeAttribute('hidden');
+    else fileDiv.setAttribute('hidden', '');
+  }
+}
+
+function bindGridWallCellInputs() {
+  $$('[data-grid-title]', $('#gridWallGrid')).forEach((inp) => {
+    inp.oninput = () => {
+      const i = Number(inp.dataset.gridTitle);
+      if (state.gridWall?.cells[i]) {
+        state.gridWall.cells[i].title = inp.value;
+        persist();
+      }
+    };
+  });
+  $$('[data-grid-body]', $('#gridWallGrid')).forEach((el) => {
+    el.oninput = () => {
+      const i = Number(el.dataset.gridBody);
+      if (state.gridWall?.cells[i]) {
+        state.gridWall.cells[i].content = el.innerHTML;
+        persist();
+      }
+    };
+  });
+}
+
+function getGridWallCellHTML(cell, index) {
+  return `<div class="grid-wall-cell" data-cell-index="${index}">
+    <input type="text" class="grid-wall-cell-title" value="${escapeAttr(cell.title)}" placeholder="Section title" data-grid-title="${index}" />
+    <div class="grid-wall-cell-body" contenteditable="true" data-grid-body="${index}">${cell.content || '<ul><li></li><li></li><li></li></ul>'}</div>
+  </div>`;
+}
+
+function renderGridWallBoard() {
+  const grid = $('#gridWallGrid');
+  const surface = $('#gridWallSurface');
+  if (!grid || !surface || !state.gridWall) return;
+
+  canvasWrap?.classList.add('canvas-wrap--grid-wall');
+  surface.hidden = false;
+  surface.removeAttribute('hidden');
+
+  const fab = $('#fabAdd');
+  if (fab) {
+    fab.hidden = true;
+    fab.setAttribute('hidden', '');
+  }
+
+  $$('[data-block-id]', canvasInner).forEach((el) => el.remove());
+  canvasInner.innerHTML = '';
+  $('.canvas-empty', canvasInner)?.remove();
+
+  grid.style.gridTemplateColumns = `repeat(${state.gridWall.cols}, 1fr)`;
+  grid.style.gridTemplateRows = `repeat(${state.gridWall.rows}, 1fr)`;
+  grid.innerHTML = state.gridWall.cells.map((cell, i) => getGridWallCellHTML(cell, i)).join('');
+  bindGridWallCellInputs();
+
+  updateEmptyState();
+  syncBoardTemplateBar();
+}
+
+function applyGridWallTemplate(templateId, options = {}) {
+  const gw = window.PREZ_GRID_WALL;
+  if (!gw) {
+    showToast('Grid wall module not loaded');
+    return;
+  }
+  const cols = options.cols === 4 ? 4 : 3;
+  const gridWall = gw.create(templateId, {
+    cols,
+    feedbackMode: options.feedbackMode,
+  });
+  const meta = gw.getTemplateMeta(templateId);
+
+  state = normalizeBoardState({
+    title: meta.title,
+    background: gw.BG,
+    layoutMode: null,
+    blocks: [],
+    presentOrder: [],
+    blankContent: '',
+    blankDraw: null,
+    timerSeconds: 300,
+    mindMapCenterId: null,
+    boardTemplate: templateId,
+    gridWall,
+  });
+
+  selectedId = null;
+  layoutUndoStack = [];
+  updateUndoButton();
+  setLayoutSelectValue('free');
+  syncBoardTitle();
+  applyBackground();
+  render();
+  persist();
+  $('#templatesDialog')?.close();
+  $('#templateConfigDialog')?.close();
+  pendingTemplateApply = null;
+  showToast(`${meta.title} ready — fill live, then Export PDF`);
+}
+
+function exportGridWallPdf() {
+  if (!isGridWallBoard() || !window.PREZ_GRID_WALL) {
+    showToast('Open a collaboration or feedback wall first');
+    return;
+  }
+  const html = window.PREZ_GRID_WALL.buildPrintDocument(state.gridWall, getBoardTitle());
+  const win = window.open('', '_blank');
+  if (!win) {
+    showToast('Allow pop-ups to export PDF, then use Print → Save as PDF');
+    return;
+  }
+  win.document.write(html);
+  win.document.close();
+  showToast('Print dialog opened — choose Save as PDF');
+}
+
+function openPresentGridWall() {
+  if (!state.gridWall) return;
+  presentOverlay.hidden = false;
+  presentOverlay.removeAttribute('hidden');
+  document.body.style.overflow = 'hidden';
+  applyPresentBackground();
+  hidePresentWhiteboard();
+  presentCounter.textContent = 'Wall';
+  const cols = state.gridWall.cols;
+  const rows = state.gridWall.rows;
+  presentStage.innerHTML = `<div class="present-grid-wall" style="grid-template-columns:repeat(${cols},1fr);grid-template-rows:repeat(${rows},1fr)">
+    ${state.gridWall.cells.map((cell, i) => getGridWallCellHTML(cell, i)).join('')}
+  </div>`;
+  $$('[data-grid-title]', presentStage).forEach((inp) => {
+    inp.readOnly = true;
+  });
+  $$('[data-grid-body]', presentStage).forEach((el) => {
+    el.contentEditable = 'false';
+  });
+  if (presentOverlay.requestFullscreen) {
+    presentOverlay.requestFullscreen().catch(() => {});
+  }
+}
+
+function applyBoardTemplate(templateId, options = {}) {
   const templates = window.PREZ_TEMPLATES;
   if (!Array.isArray(templates)) {
     showToast('Templates not loaded');
@@ -7027,32 +7661,43 @@ function applyBoardTemplate(templateId) {
   if (!tpl) return;
 
   if (
-    state.blocks.length &&
+    (state.blocks.length || state.gridWall) &&
     !confirm('Replace your current board with this template? Unsaved changes will be lost.')
   ) {
     return;
   }
 
   closePresent();
+  closeGalleryViewer();
   closeFormatMenu();
   closeAllDropdowns();
   closeBlank();
   closeOutline();
   resetTimer();
 
-  const blocks = (tpl.blockSpecs || []).map((spec, i) => instantiateTemplateBlock(spec, i));
-  const board = tpl.board || {};
+  if (templateId === 'task-collaboration-wall' || templateId === 'feedback-reflection-wall') {
+    applyGridWallTemplate(templateId, options);
+    return;
+  }
+
+  const builder = window.PREZ_TEMPLATE_BUILDERS?.[templateId];
+  const built = builder ? builder(options) : null;
+  let blockSpecs = built?.blockSpecs ?? tpl.blockSpecs ?? [];
+  const board = { ...(tpl.board || {}), ...(built?.board || {}) };
+
+  const blocks = blockSpecs.map((spec, i) => instantiateTemplateBlock(spec, i));
   if (board.presentEditable) {
     blocks.forEach((b) => {
       b.presentEditable = true;
     });
   }
-  const centerBlock =
-    blocks.find((b) => b.mindMapCenter) || (board.mindMap || tpl.layout === 'mind-map' ? blocks[0] : null);
 
-  if (centerBlock && (board.mindMap || tpl.layout === 'mind-map')) {
-    layoutMindMapBlocks(blocks, centerBlock.id);
-  }
+  const isMindMap = board.mindMap || tpl.layout === 'mind-map';
+  const centerBlock =
+    blocks.find((b) => b.mindMapCenter) ||
+    (isMindMap ? blocks.find((b) => b.type === 'heading') || blocks[0] : null);
+
+  applyTemplateLayout(templateId, blocks, centerBlock?.id);
 
   const presentOrder = blocks.map((b) => b.id);
 
@@ -7065,7 +7710,8 @@ function applyBoardTemplate(templateId) {
     blankContent: '',
     blankDraw: null,
     timerSeconds: 300,
-    mindMapCenterId: centerBlock && (board.mindMap || tpl.layout === 'mind-map') ? centerBlock.id : null,
+    mindMapCenterId: centerBlock && isMindMap ? centerBlock.id : null,
+    boardTemplate: isMindMap ? 'mind-map' : templateId,
   });
 
   selectedId = null;
@@ -7074,19 +7720,184 @@ function applyBoardTemplate(templateId) {
   setLayoutSelectValue(state.layoutMode || 'free');
   syncBoardTitle();
   applyBackground();
-
-  if (state.layoutMode && state.layoutMode !== 'free') {
-    arrangeBlocks(state.layoutMode);
-    resizeCanvasToContent();
-  } else {
-    resizeCanvasToContent();
-  }
+  resizeCanvasToContent();
 
   render();
   persist();
   $('#templatesDialog')?.close();
+  $('#templateConfigDialog')?.close();
+  pendingTemplateApply = null;
+
   const editNote = board.presentEditable ? ' · editable in Present' : '';
-  showToast(`${tpl.name} ready — edit cards and Present${editNote}`);
+  const extra =
+    templateId === 'gallery-walk'
+      ? ' — add images or documents, then click a station to view full screen'
+      : '';
+  showToast(`${tpl.name} ready${editNote}${extra}`);
+}
+
+function requestApplyTemplate(tpl) {
+  if (!tpl?.id) return;
+  if (tpl.configure?.kind === 'cells' || tpl.configure?.kind === 'branches') {
+    pendingTemplateApply = { templateId: tpl.id, configure: tpl.configure };
+    openTemplateConfigCountDialog(tpl);
+    return;
+  }
+  if (tpl.configure?.kind === 'task-grid') {
+    openTemplateConfigTaskGridDialog(tpl);
+    return;
+  }
+  if (tpl.configure?.kind === 'feedback-grid') {
+    openTemplateConfigFeedbackGridDialog(tpl);
+    return;
+  }
+  applyBoardTemplate(tpl.id);
+}
+
+function openTemplateConfigCountDialog(tpl) {
+  const cfg = tpl.configure;
+  const dialog = $('#templateConfigDialog');
+  const titleEl = $('#templateConfigTitle');
+  const introEl = $('#templateConfigIntro');
+  const choicesEl = $('#templateConfigChoices');
+  const presetsEl = $('#templateConfigPresets');
+  if (!dialog || !choicesEl) return;
+
+  const label = cfg.label || 'items';
+  titleEl.textContent = tpl.name;
+  introEl.textContent =
+    cfg.kind === 'branches'
+      ? 'How many branches around the central topic?'
+      : `How many ${label}? Stations fill the board.`;
+  presetsEl.innerHTML = '';
+  presetsEl.hidden = true;
+  presetsEl.setAttribute('hidden', '');
+  choicesEl.hidden = false;
+  choicesEl.removeAttribute('hidden');
+  choicesEl.innerHTML = '';
+
+  for (let n = cfg.min; n <= cfg.max; n++) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'template-config-choice' + (n === cfg.default ? ' is-recommended' : '');
+    btn.textContent = String(n);
+    btn.addEventListener('click', () => {
+      const opts = cfg.kind === 'branches' ? { branchCount: n } : { cellCount: n };
+      applyBoardTemplate(tpl.id, opts);
+    });
+    choicesEl.appendChild(btn);
+  }
+
+  $('#templatesDialog')?.close();
+  try {
+    dialog.showModal();
+  } catch {
+    showToast('Could not open options');
+  }
+}
+
+function openTemplateConfigTaskGridDialog(tpl) {
+  const dialog = $('#templateConfigDialog');
+  const titleEl = $('#templateConfigTitle');
+  const introEl = $('#templateConfigIntro');
+  const choicesEl = $('#templateConfigChoices');
+  const presetsEl = $('#templateConfigPresets');
+  if (!dialog || !choicesEl) return;
+
+  titleEl.textContent = tpl.name;
+  introEl.textContent = 'Choose grid size — 2×3 (recommended) or 2×4. All sections visible on one screen.';
+  presetsEl.innerHTML = '';
+  presetsEl.hidden = true;
+  presetsEl.setAttribute('hidden', '');
+  choicesEl.hidden = false;
+  choicesEl.removeAttribute('hidden');
+  choicesEl.innerHTML = '';
+
+  [
+    { label: '2×3', cols: 3, rec: true },
+    { label: '2×4', cols: 4, rec: false },
+  ].forEach((opt) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'template-config-choice' + (opt.rec ? ' is-recommended' : '');
+    btn.textContent = opt.label;
+    btn.addEventListener('click', () => applyBoardTemplate(tpl.id, { cols: opt.cols }));
+    choicesEl.appendChild(btn);
+  });
+
+  $('#templatesDialog')?.close();
+  try {
+    dialog.showModal();
+  } catch {
+    showToast('Could not open options');
+  }
+}
+
+function openTemplateConfigFeedbackGridDialog(tpl) {
+  const dialog = $('#templateConfigDialog');
+  const titleEl = $('#templateConfigTitle');
+  const introEl = $('#templateConfigIntro');
+  const presetsEl = $('#templateConfigPresets');
+  const choicesEl = $('#templateConfigChoices');
+  if (!dialog || !presetsEl) return;
+
+  titleEl.textContent = tpl.name;
+  introEl.textContent = 'When did you review the work? Then pick grid size.';
+  choicesEl.innerHTML = '';
+  choicesEl.hidden = true;
+  choicesEl.setAttribute('hidden', '');
+  presetsEl.hidden = false;
+  presetsEl.removeAttribute('hidden');
+  presetsEl.innerHTML = '';
+
+  const options = [
+    { label: 'Drafts reviewed', sub: '2×3 grid', feedbackMode: 'drafts', cols: 3 },
+    { label: 'Drafts reviewed', sub: '2×4 grid', feedbackMode: 'drafts', cols: 4 },
+    { label: 'Final work reviewed', sub: '2×3 grid', feedbackMode: 'final', cols: 3 },
+    { label: 'Final work reviewed', sub: '2×4 grid', feedbackMode: 'final', cols: 4 },
+  ];
+
+  options.forEach((opt, i) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'template-config-preset' + (i === 0 ? ' is-recommended' : '');
+    btn.innerHTML = `<strong>${escapeHtml(opt.label)}</strong><span>${escapeHtml(opt.sub)}</span>`;
+    btn.addEventListener('click', () =>
+      applyBoardTemplate(tpl.id, { feedbackMode: opt.feedbackMode, cols: opt.cols })
+    );
+    presetsEl.appendChild(btn);
+  });
+
+  $('#templatesDialog')?.close();
+  try {
+    dialog.showModal();
+  } catch {
+    showToast('Could not open options');
+  }
+}
+
+function initTemplateConfigDialog() {
+  const dialog = $('#templateConfigDialog');
+  if (!dialog) return;
+  dialog.querySelectorAll('[data-close]').forEach((btn) => {
+    btn.addEventListener('click', () => dialog.close());
+  });
+}
+
+function initBoardTemplateBar() {
+  $('#assessmentAddStage')?.addEventListener('click', addAssessmentStage);
+  $('#assessmentRemoveStage')?.addEventListener('click', removeAssessmentStage);
+}
+
+function initGalleryViewer() {
+  $('#galleryViewerClose')?.addEventListener('click', closeGalleryViewer);
+  $('#galleryViewerOverlay')?.addEventListener('click', (e) => {
+    if (e.target.id === 'galleryViewerOverlay') closeGalleryViewer();
+  });
+}
+
+function initGridWallUI() {
+  $('#btnGridWallPdf')?.addEventListener('click', exportGridWallPdf);
 }
 
 function createTemplateCard(tpl, { large = false } = {}) {
@@ -7096,7 +7907,7 @@ function createTemplateCard(tpl, { large = false } = {}) {
   btn.dataset.templateId = tpl.id;
   const tagHtml = tpl.tag ? `<span class="template-card-tag">${escapeHtml(tpl.tag)}</span>` : '';
   btn.innerHTML = `${tagHtml}<span class="template-card-name">${escapeHtml(tpl.name)}</span><span class="template-card-desc">${escapeHtml(tpl.description || '')}</span><span class="template-card-cta">Use template</span>`;
-  btn.addEventListener('click', () => applyBoardTemplate(tpl.id));
+  btn.addEventListener('click', () => requestApplyTemplate(tpl));
   return btn;
 }
 
@@ -7166,11 +7977,15 @@ function openTemplatesDialog() {
 // --- Save / load ---
 
 function newBoard() {
-  if (state.blocks.length && !confirm('Start a new board? Your current cards will be cleared.')) {
+  if (
+    (state.blocks.length || state.gridWall) &&
+    !confirm('Start a new board? Your current cards will be cleared.')
+  ) {
     return;
   }
 
   closePresent();
+  closeGalleryViewer();
   closeFormatMenu();
   closeAllDropdowns();
 
@@ -7192,6 +8007,8 @@ function newBoard() {
     blankDraw: null,
     timerSeconds: 300,
     mindMapCenterId: null,
+    boardTemplate: null,
+    gridWall: null,
     defaultAccent: null,
   });
 
@@ -7202,6 +8019,9 @@ function newBoard() {
   setLayoutSelectValue('free');
   syncBoardTitle();
   applyBackground();
+  hideGridWallSurface();
+  syncGridWallChrome();
+  syncBoardTemplateBar();
   render();
   persist();
   showToast('New board');
@@ -7220,6 +8040,8 @@ function buildBoardExportJson() {
     blankDraw: state.blankDraw,
     timerSeconds: state.timerSeconds,
     mindMapCenterId: state.mindMapCenterId || null,
+    boardTemplate: state.boardTemplate || null,
+    gridWall: state.gridWall || null,
     defaultAccent: state.defaultAccent || null,
     presentUseBoardBackground: !!state.presentUseBoardBackground,
     presentUseCardColour: !!state.presentUseCardColour,
@@ -7334,6 +8156,8 @@ function importBoard(file) {
         blankDraw: data.blankDraw,
         timerSeconds: data.timerSeconds,
         mindMapCenterId: data.mindMapCenterId || null,
+        boardTemplate: data.boardTemplate || null,
+        gridWall: data.gridWall || null,
         defaultAccent: data.defaultAccent || null,
         presentUseBoardBackground: data.presentUseBoardBackground,
         presentUseCardColour: data.presentUseCardColour,
@@ -7344,6 +8168,8 @@ function importBoard(file) {
       updateUndoButton();
       setLayoutSelectValue(state.layoutMode || 'free');
       syncBoardTitle();
+      applyBackground();
+      syncGridWallChrome();
       render();
       scheduleDocxBackfill();
       showToast('Board opened');
@@ -7595,6 +8421,10 @@ function bindToolbar() {
     e.target.value = '';
   });
   $('#btnPresent')?.addEventListener('click', () => {
+    if (isGridWallBoard()) {
+      openPresentGridWall();
+      return;
+    }
     const blocks = getPresentBlocks();
     if (blocks.length) openPresent(selectedId && blocks.some((b) => b.id === selectedId) ? selectedId : blocks[0].id);
     else showToast('Add a block first');
@@ -7685,7 +8515,7 @@ function bindToolbar() {
 }
 
 function hideAllOverlays() {
-  ['#presentOverlay', '#timerFloat', '#blankOverlay', '#outlinePanel', '#timerPopover'].forEach((sel) => {
+  ['#presentOverlay', '#timerFloat', '#blankOverlay', '#outlinePanel', '#timerPopover', '#galleryViewerOverlay'].forEach((sel) => {
     const el = $(sel);
     if (!el) return;
     el.hidden = true;
@@ -7728,6 +8558,10 @@ function init() {
     initBrainBreakDialog();
     initTableColumnResize();
     initTemplatesGallery();
+    initTemplateConfigDialog();
+    initBoardTemplateBar();
+    initGalleryViewer();
+    initGridWallUI();
     setLayoutSelectValue(state.layoutMode || 'free');
     render();
     scheduleDocxBackfill();
@@ -7741,7 +8575,11 @@ function init() {
   window.addEventListener('resize', () => {
     clearTimeout(layoutResizeTimer);
     layoutResizeTimer = setTimeout(() => {
-      if (state.layoutMode && state.blocks.length) {
+      if (state.boardTemplate && state.blocks.length) {
+        applyTemplateLayout(state.boardTemplate, state.blocks, state.mindMapCenterId);
+        resizeCanvasToContent();
+        render();
+      } else if (state.layoutMode && state.blocks.length) {
         arrangeBlocks(state.layoutMode);
         resizeCanvasToContent();
         render();
@@ -7767,6 +8605,10 @@ function init() {
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+      if ($('#galleryViewerOverlay') && !$('#galleryViewerOverlay').hidden) {
+        closeGalleryViewer();
+        return;
+      }
       if (!$('#blankOverlay')?.hidden) {
         closeBlank();
         return;
@@ -7808,6 +8650,10 @@ function init() {
       }
     }
     if (e.key === 'p' && !e.target.matches('input, [contenteditable], select')) {
+      if (isGridWallBoard()) {
+        openPresentGridWall();
+        return;
+      }
       const blocks = getPresentBlocks();
       if (blocks.length) {
         const id = selectedId && blocks.some((b) => b.id === selectedId) ? selectedId : blocks[0].id;

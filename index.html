@@ -103,6 +103,8 @@
             <button type="button" class="toolbar-dropdown-item" data-file="templates">Templates…</button>
             <div class="toolbar-dropdown-divider"></div>
             <button type="button" class="toolbar-dropdown-item" data-file="new">New board</button>
+            <button type="button" class="toolbar-dropdown-item" data-file="grid-wall-pdf" id="fileMenuGridWallPdf" hidden>Export wall as PDF…</button>
+            <div class="toolbar-dropdown-divider" id="fileMenuGridWallDivider" hidden></div>
             <button type="button" class="toolbar-dropdown-item" data-file="save">Save as…</button>
             <button type="button" class="toolbar-dropdown-item" data-file="open">Open…</button>
           </div>
@@ -122,7 +124,14 @@
       <div class="canvas" id="canvas" aria-label="Board canvas">
         <div class="canvas-inner" id="canvasInner"></div>
       </div>
+      <div id="gridWallSurface" class="grid-wall-surface" hidden>
+        <div id="gridWallGrid" class="grid-wall-grid" role="presentation"></div>
+      </div>
     </main>
+
+    <button type="button" id="btnGridWallPdf" class="btn btn-ghost btn-grid-wall-pdf" hidden title="Export grid as PDF">
+      Export PDF
+    </button>
 
     <button type="button" id="fabAdd" class="fab" aria-label="Add block" title="Add block">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -277,11 +286,35 @@
         <h2>Templates</h2>
         <button type="button" class="btn-icon dialog-close" data-close aria-label="Close">×</button>
       </header>
-      <p class="templates-intro">Start from a ready-made board. Replace placeholder text, add links or images, then Present in lesson order.</p>
+      <p class="templates-intro">Start from a ready-made board. Thinking &amp; collaboration templates include gallery walks, assessment guides, feedback walls, and more.</p>
       <div id="templatesFeatured" class="templates-featured" hidden></div>
       <div id="templatesSections" class="templates-sections"></div>
     </div>
   </dialog>
+
+  <dialog id="templateConfigDialog" class="dialog">
+    <div class="dialog-panel dialog-panel-template-config">
+      <header class="dialog-header">
+        <h2 id="templateConfigTitle">Template options</h2>
+        <button type="button" class="btn-icon dialog-close" data-close aria-label="Close">×</button>
+      </header>
+      <p id="templateConfigIntro" class="template-config-intro"></p>
+      <div id="templateConfigChoices" class="template-config-choices" hidden></div>
+      <div id="templateConfigPresets" class="template-config-presets" hidden></div>
+    </div>
+  </dialog>
+
+  <div id="boardTemplateBar" class="board-template-bar" hidden>
+    <span class="board-template-bar-label" id="boardTemplateBarLabel">Assessment stages</span>
+    <button type="button" id="assessmentAddStage" class="btn btn-ghost btn-sm">Add stage</button>
+    <button type="button" id="assessmentRemoveStage" class="btn btn-ghost btn-sm">Remove stage</button>
+  </div>
+
+  <div id="galleryViewerOverlay" class="gallery-viewer-overlay" hidden>
+    <button type="button" id="galleryViewerClose" class="gallery-viewer-close" aria-label="Back to gallery">×</button>
+    <div id="galleryViewerStage" class="gallery-viewer-stage"></div>
+    <p id="galleryViewerCaption" class="gallery-viewer-caption"></p>
+  </div>
 
   <aside id="outlinePanel" class="outline-panel" hidden aria-label="Lesson outline">
     <header class="outline-header">
@@ -366,6 +399,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="template-bundled-images.js"></script>
+  <script src="grid-walls.js"></script>
   <script src="templates.js"></script>
   <script src="hot-routines.js"></script>
   <script src="brain-break-routines.js"></script>
