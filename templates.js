@@ -168,7 +168,7 @@
       board: {
         title: 'Lesson plan',
         background: BG_ACADEMIC,
-        layoutMode: 'rows',
+        layoutMode: 'grid-auto',
       },
       blockSpecs: [
         {
@@ -330,7 +330,7 @@
       board: {
         title: 'Mini lesson plan',
         background: BG_ACADEMIC,
-        layoutMode: 'rows',
+        layoutMode: 'grid-auto',
       },
       blockSpecs: [
         {
@@ -413,7 +413,7 @@
       board: {
         title: 'Narrative Writing: Build One Powerful Scene',
         background: BG_PAPER,
-        layoutMode: 'rows',
+        layoutMode: 'grid-auto',
       },
       blockSpecs: [
         {
@@ -640,7 +640,7 @@
       board: {
         title: 'Persuasive Writing: Build a Strong Argument',
         background: BG_ACADEMIC,
-        layoutMode: 'rows',
+        layoutMode: 'grid-auto',
       },
       blockSpecs: [
         {
@@ -905,7 +905,7 @@
       board: {
         title: 'Source Analysis: Read Evidence Like a Historian',
         background: BG_TWILIGHT,
-        layoutMode: 'rows',
+        layoutMode: 'grid-auto',
       },
       blockSpecs: [
         {
@@ -1190,7 +1190,7 @@
       board: {
         title: 'PSMT Builder',
         background: BG_STEM_MATH,
-        layoutMode: 'rows',
+        layoutMode: 'grid-auto',
         presentEditable: true,
       },
       blockSpecs: [
@@ -1303,7 +1303,7 @@
       board: {
         title: 'Practical investigation report',
         background: BG_STEM_SCI,
-        layoutMode: 'rows',
+        layoutMode: 'grid-auto',
         presentEditable: true,
       },
       blockSpecs: [
@@ -1433,7 +1433,7 @@
       board: {
         title: 'Fair test planner',
         background: BG_STEM_SCI,
-        layoutMode: 'rows',
+        layoutMode: 'grid-auto',
         presentEditable: true,
       },
       blockSpecs: [

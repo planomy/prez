@@ -36,6 +36,26 @@ const BLOCK_TYPE_OPTIONS = [
   { type: 'worldmap', icon: '🌍', label: 'World map', iconClass: 'worldmap' },
 ];
 
+function getBlockTypeLabel(block) {
+  if (!block?.type) return 'Card';
+  if (block.hotRoutineId) return 'HOT activity';
+  return BLOCK_TYPE_OPTIONS.find((o) => o.type === block.type)?.label || 'Card';
+}
+
+function getBlockHeaderAvatar(block) {
+  if (block?.hotRoutineId) return '◆';
+  const opt = BLOCK_TYPE_OPTIONS.find((o) => o.type === block?.type);
+  if (opt?.icon) return opt.icon;
+  return getBlockTypeLabel(block).slice(0, 1);
+}
+
+function syncBlockHeader(el, block) {
+  const authorEl = $('.block-author', el);
+  const avatarEl = $('.block-avatar', el);
+  if (authorEl) authorEl.textContent = getBlockTypeLabel(block);
+  if (avatarEl) avatarEl.textContent = getBlockHeaderAvatar(block);
+}
+
 const BACKGROUNDS = [
   { id: 'aurora', style: 'linear-gradient(135deg, #1a365d 0%, #2c5282 40%, #ed8936 100%)' },
   { id: 'civics', style: 'linear-gradient(160deg, #234e70 0%, #fb8500 55%, #ffb703 100%)' },
@@ -300,7 +320,9 @@ const TEXT_CARD_ALIGN_ICONS = {
 
 let timerState = { running: false, endAt: null, remainingSec: 300 };
 let timerFloatDismissed = false;
-let state = loadState();
+const initialLoad = loadState();
+let state = initialLoad.state;
+let showHomeOnStart = !initialLoad.hasSaved;
 let selectedId = null;
 let dragState = null;
 let resizeState = null;
@@ -663,54 +685,33 @@ function loadState() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed.version === VERSION) return normalizeBoardState(parsed);
+      if (parsed.version === VERSION) {
+        return { state: normalizeBoardState(parsed), hasSaved: true };
+      }
     }
   } catch (_) {}
-  return normalizeBoardState({
-    ...DEFAULTS,
-    blocks: createDemoBlocks(),
-  });
+  return {
+    state: normalizeBoardState({
+      ...DEFAULTS,
+      blocks: [],
+      presentOrder: [],
+    }),
+    hasSaved: false,
+  };
 }
 
-function createDemoBlocks() {
-  return [
-    {
-      id: uid(),
-      type: 'heading',
-      x: 80,
-      y: 80,
-      w: 340,
-      h: 160,
-      z: 1,
-      accent: 'ocean',
-      title: 'Unit 1: Civics',
-      content: '<p>Welcome to your classroom board. Click any block to present fullscreen.</p>',
-    },
-    {
-      id: uid(),
-      type: 'list',
-      x: 460,
-      y: 80,
-      w: 300,
-      h: 280,
-      z: 2,
-      accent: 'coral',
-      title: 'This term…',
-      content: '<ul><li>Civics and citizenship</li><li>Democracy and law-making</li><li>Assessment week 6</li><li>Excursion forms due Friday</li></ul>',
-    },
-    {
-      id: uid(),
-      type: 'note',
-      x: 80,
-      y: 280,
-      w: 360,
-      h: 240,
-      z: 3,
-      accent: 'gold',
-      title: 'Lesson focus',
-      content: '<p>Students will explain how laws are made and evaluate one case study from this term.</p>',
-    },
-  ];
+function getSavedBoardTitle() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed.version !== VERSION) return null;
+    const hasContent = (Array.isArray(parsed.blocks) && parsed.blocks.length > 0) || parsed.gridWall;
+    if (!hasContent) return null;
+    return (parsed.title || DEFAULTS.title).trim() || DEFAULTS.title;
+  } catch (_) {
+    return null;
+  }
 }
 
 function persist() {
@@ -896,7 +897,7 @@ function createBlockElement(block) {
     <header class="block-header">
       <div class="block-avatar" aria-hidden="true">T</div>
       <div class="block-meta">
-        <div class="block-author">Teacher</div>
+        <div class="block-author"></div>
         <div class="block-time">Just now</div>
       </div>
       <div class="block-header-actions">
@@ -1357,7 +1358,8 @@ function initToolbarMenus() {
     const action = item.dataset.file;
     if (action === 'save') return;
     closeToolbarMenus();
-    if (action === 'templates') openTemplatesDialog();
+    if (action === 'home') openHomeScreen();
+    else if (action === 'templates') openTemplatesDialog();
     else if (action === 'new') newBoard();
     else if (action === 'open') openFilePicker();
     else if (action === 'grid-wall-pdf') exportGridWallPdf();
@@ -1549,7 +1551,12 @@ function computeColumnsSpec(mode) {
 }
 
 function sortBlocksForLayout() {
+  normalizePresentOrder();
+  const orderIndex = new Map(state.presentOrder.map((id, i) => [id, i]));
   return [...state.blocks].sort((a, b) => {
+    const oa = orderIndex.get(a.id);
+    const ob = orderIndex.get(b.id);
+    if (oa != null && ob != null && oa !== ob) return oa - ob;
     const rowA = Math.floor(a.y / 80);
     const rowB = Math.floor(b.y / 80);
     if (rowA !== rowB) return rowA - rowB;
@@ -1997,6 +2004,7 @@ function getPresentListRevealHintHTML(block) {
 function updateBlockElement(el, block) {
   applyAccentStyles(el, block.accent);
   el.dataset.blockType = block.type;
+  syncBlockHeader(el, block);
   el.classList.toggle('block--sticky', block.type === 'sticky');
   el.classList.toggle('block--gallery-station', !!block.galleryStation);
   el.classList.toggle('is-gallery-viewable', !!block.galleryStation && galleryStationHasMedia(block));
@@ -3645,13 +3653,234 @@ function bindBlockEvents(el, block) {
 
 // --- Drag & resize ---
 
+const DRAG_SWAP_HOLD_MS = 180;
+
+function blockOverlapRatio(a, b) {
+  const aE = blockEdges(a);
+  const bE = blockEdges(b);
+  const ox = overlapSize(aE, bE, 'x');
+  const oy = overlapSize(aE, bE, 'y');
+  if (!ox || !oy) return 0;
+  const overlapArea = ox * oy;
+  const minArea = Math.min(a.w * a.h, b.w * b.h);
+  return minArea > 0 ? overlapArea / minArea : 0;
+}
+
+function getDragOverlapInfo(dragged, other) {
+  const ratio = blockOverlapRatio(dragged, other);
+  const cx = dragged.x + dragged.w / 2;
+  const cy = dragged.y + dragged.h / 2;
+  const centerInOther =
+    cx >= other.x && cx <= other.x + other.w && cy >= other.y && cy <= other.y + other.h;
+  const conflicts = hotRectOverlapsBlock(blockEdges(dragged), other, LAYOUT_GAP);
+  return { ratio, centerInOther, conflicts };
+}
+
+function findDropSwapTarget(block) {
+  let best = null;
+  let bestScore = -1;
+  for (const other of state.blocks) {
+    if (other.id === block.id) continue;
+    const info = getDragOverlapInfo(block, other);
+    if (!info.conflicts && info.ratio < 0.08) continue;
+    const score = (info.centerInOther ? 10 : 0) + info.ratio;
+    if (score > bestScore) {
+      bestScore = score;
+      best = other;
+    }
+  }
+  return best;
+}
+
+function swapBlockPositions(a, b) {
+  const ax = a.x;
+  const ay = a.y;
+  a.x = b.x;
+  a.y = b.y;
+  b.x = ax;
+  b.y = ay;
+}
+
+function blocksSharePlacement(a, b, epsilon = 10) {
+  return Math.abs(a.x - b.x) <= epsilon && Math.abs(a.y - b.y) <= epsilon;
+}
+
+function shouldSwapOnDrop(block, target) {
+  if (!target || blocksSharePlacement(block, target)) return false;
+  if (dragState?.swapReady && dragState.swapTargetId === target.id) return true;
+  const info = getDragOverlapInfo(block, target);
+  return info.centerInOther && info.ratio >= 0.12;
+}
+
+function getRowBottomFromBlocks(blocks) {
+  if (!blocks.length) return 0;
+  return Math.max(...blocks.map((b) => b.y + b.h));
+}
+
+/** Reflow one row after a card is placed on it: cascade right, wrap to next line, bump rows below. */
+function cascadeLayoutAfterDrop(dropped, gap = LAYOUT_GAP) {
+  const { pad, usableW, gap: layoutGap } = getViewportLayoutMetrics();
+  const g = gap ?? layoutGap;
+  const maxRight = pad + usableW;
+  const yThreshold = 52;
+
+  const allRows = clusterBlocksIntoRows(state.blocks, yThreshold);
+  const rowIdx = allRows.findIndex((r) => r.blocks.some((b) => b.id === dropped.id));
+  if (rowIdx < 0) {
+    const rect = blockEdges(dropped);
+    for (let pass = 0; pass < 32; pass++) {
+      let moved = false;
+      for (const other of state.blocks) {
+        if (other.id === dropped.id) continue;
+        if (!hotRectOverlapsBlock(rect, other, g)) continue;
+        const minX = rect.right + g;
+        if (other.x < minX) {
+          other.x = minX;
+          moved = true;
+        }
+      }
+      if (!moved) break;
+    }
+    bringToFront(dropped.id);
+    return;
+  }
+
+  const row = allRows[rowIdx];
+  const rowY = row.y;
+  const droppedRect = blockEdges(dropped);
+  const before = [];
+  const after = [];
+
+  for (const b of row.blocks) {
+    if (b.id === dropped.id) continue;
+    if (hotRectOverlapsBlock(droppedRect, b, g) || b.x >= dropped.x - 12) {
+      after.push(b);
+    } else {
+      before.push(b);
+    }
+  }
+  before.sort((a, b) => a.x - b.x);
+  after.sort((a, b) => a.x - b.x);
+
+  let x = pad;
+  for (const b of before) {
+    b.x = x;
+    b.y = rowY;
+    x += b.w + g;
+  }
+
+  x = Math.max(x, dropped.x + dropped.w + g);
+
+  let lineY = rowY;
+  let lineMaxH = dropped.h;
+  for (const b of after) {
+    if (x > pad && x + b.w > maxRight + 1) {
+      lineY += lineMaxH + g;
+      x = pad;
+      lineMaxH = 0;
+    }
+    b.x = x;
+    b.y = lineY;
+    lineMaxH = Math.max(lineMaxH, b.h);
+    x += b.w + g;
+  }
+
+  const oldBottom = row.bottom;
+  const newBottom = lineY + lineMaxH;
+  const delta = newBottom - oldBottom;
+  if (delta > 0) {
+    for (let i = rowIdx + 1; i < allRows.length; i++) {
+      allRows[i].blocks.forEach((b) => {
+        b.y += delta;
+      });
+      allRows[i].y += delta;
+      allRows[i].bottom += delta;
+    }
+  }
+
+  const rowBlocks = row.blocks.slice().sort((a, b) => a.x - b.x);
+  rowBlocks.forEach((b, i) => {
+    b.z = i + 1;
+  });
+  bringToFront(dropped.id);
+
+  let z = state.blocks.length + 1;
+  for (let i = rowIdx + 1; i < allRows.length; i++) {
+    const sorted = allRows[i].blocks.slice().sort((a, b) => a.x - b.x);
+    sorted.forEach((b) => {
+      b.z = z++;
+    });
+  }
+}
+
+function pushBlocksAsideFrom(block, gap = LAYOUT_GAP) {
+  cascadeLayoutAfterDrop(block, gap);
+}
+
+function clearDragSwapHints() {
+  $$('.block--drag-swap-target').forEach((el) => el.classList.remove('block--drag-swap-target'));
+  if (dragState?.swapTimer) {
+    clearTimeout(dragState.swapTimer);
+    dragState.swapTimer = null;
+  }
+  if (dragState) {
+    dragState.swapHoverId = null;
+    dragState.swapTargetId = null;
+    dragState.swapReady = false;
+  }
+}
+
+function updateDragSwapHints(block) {
+  if (!dragState) return;
+  const candidate = findDropSwapTarget(block);
+  const candidateId = candidate?.id || null;
+
+  if (candidateId === dragState.swapHoverId) return;
+
+  $$('.block--drag-swap-target').forEach((el) => el.classList.remove('block--drag-swap-target'));
+  if (dragState.swapTimer) {
+    clearTimeout(dragState.swapTimer);
+    dragState.swapTimer = null;
+  }
+
+  dragState.swapHoverId = candidateId;
+  dragState.swapTargetId = null;
+  dragState.swapReady = false;
+
+  if (!candidateId) return;
+
+  dragState.swapTimer = setTimeout(() => {
+    if (!dragState || dragState.swapHoverId !== candidateId) return;
+    dragState.swapTargetId = candidateId;
+    dragState.swapReady = true;
+    $(`[data-block-id="${candidateId}"]`)?.classList.add('block--drag-swap-target');
+  }, DRAG_SWAP_HOLD_MS);
+}
+
+function syncAllBlockPositions() {
+  state.blocks.forEach((b) => {
+    const bel = $(`[data-block-id="${b.id}"]`);
+    if (bel) positionBlock(bel, b);
+  });
+}
+
+function finishDragPlacement(block) {
+  const swapTarget = findDropSwapTarget(block);
+  if (swapTarget && shouldSwapOnDrop(block, swapTarget)) {
+    swapBlockPositions(block, swapTarget);
+    syncAllBlockPositions();
+    return;
+  }
+  pushBlocksAsideFrom(block);
+  syncAllBlockPositions();
+}
+
 function startDrag(e, block, el) {
   if (e.button !== 0) return;
   e.preventDefault();
   selectBlock(block.id);
   bringToFront(block.id);
 
-  const rect = canvasInner.getBoundingClientRect();
   dragState = {
     id: block.id,
     el,
@@ -3660,6 +3889,11 @@ function startDrag(e, block, el) {
     origX: block.x,
     origY: block.y,
     moved: false,
+    undoPushed: false,
+    swapHoverId: null,
+    swapTargetId: null,
+    swapReady: false,
+    swapTimer: null,
   };
 
   el.classList.add('is-dragging');
@@ -3668,7 +3902,13 @@ function startDrag(e, block, el) {
   const onMove = (ev) => {
     const dx = ev.clientX - dragState.startX;
     const dy = ev.clientY - dragState.startY;
-    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragState.moved = true;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+      if (!dragState.moved && !dragState.undoPushed) {
+        pushLayoutUndo();
+        dragState.undoPushed = true;
+      }
+      dragState.moved = true;
+    }
 
     const rawX = Math.max(0, dragState.origX + dx);
     const rawY = Math.max(0, dragState.origY + dy);
@@ -3677,26 +3917,31 @@ function startDrag(e, block, el) {
       block.y = rawY;
       positionBlock(el, block);
       clearSnapGuides();
+      updateDragSwapHints(block);
     } else {
       const snapped = snapDragPosition(block, rawX, rawY);
       block.x = snapped.x;
       block.y = snapped.y;
       positionBlock(el, block);
       showSnapGuides(snapped.vGuides, snapped.hGuides);
+      updateDragSwapHints(block);
     }
   };
 
   const onUp = (ev) => {
     el.classList.remove('is-dragging');
     clearSnapGuides();
+    if (dragState?.moved) {
+      finishDragPlacement(block);
+      resizeCanvasToContent();
+      state.layoutMode = null;
+      setLayoutSelectValue('free');
+    }
+    clearDragSwapHints();
     el.releasePointerCapture(ev.pointerId);
     el.removeEventListener('pointermove', onMove);
     el.removeEventListener('pointerup', onUp);
     el.removeEventListener('pointercancel', onUp);
-    if (dragState?.moved) {
-      state.layoutMode = null;
-      setLayoutSelectValue('free');
-    }
     persist();
     setTimeout(() => {
       dragState = null;
@@ -5688,22 +5933,9 @@ function getHotCardPosition(anchorBlock, w, h) {
   return { x: pad, y: lastRow.bottom + gap, w: width, h: height };
 }
 
-/** Nudge blocks that overlap the new card to the right. */
+/** Nudge blocks that overlap a newly placed card (HOT insert, etc.). */
 function pushBlocksClearOfHotCard(block, gap = LAYOUT_GAP) {
-  const rect = blockEdges(block);
-  let changed = true;
-  for (let pass = 0; pass < 32 && changed; pass++) {
-    changed = false;
-    for (const other of state.blocks) {
-      if (other.id === block.id) continue;
-      if (!hotRectOverlapsBlock(rect, other, gap)) continue;
-      const minX = rect.right + gap;
-      if (other.x < minX) {
-        other.x = minX;
-        changed = true;
-      }
-    }
-  }
+  cascadeLayoutAfterDrop(block, gap);
 }
 
 function scrollToHotRoutine(blockId) {
@@ -5716,6 +5948,19 @@ function scrollToHotRoutine(blockId) {
 
 const postPickerSelected = new Set();
 const hotPickerSelected = new Set();
+let addDialogSideMode = null;
+
+const ADD_DIALOG_SIDE_COPY = {
+  hot: {
+    title: 'HOT activities',
+    intro:
+      'Select one or more routines. Each adds a student instruction card (same colour as your selected card).',
+  },
+  brainbreak: {
+    title: 'Brain breaks',
+    intro: 'Select one or more brain breaks. Each adds a card you can present one idea at a time.',
+  },
+};
 
 function createPickerRemoveBtn(onRemove) {
   const btn = document.createElement('button');
@@ -5752,57 +5997,99 @@ function syncPostPickerUI() {
     if (sel && !rm) card.appendChild(createPickerRemoveBtn(() => removePostPicker(type)));
     else if (!sel && rm) rm.remove();
   });
-  const done = $('#postPickerDone');
-  if (done) done.disabled = postPickerSelected.size === 0;
-}
-
-function commitPostPicker() {
-  const types = [...postPickerSelected];
-  if (!types.length) return;
-  postPickerSelected.clear();
-  types.forEach((type) =>
-    addBlock(type, { skipRender: true, skipFocus: true, skipToast: true })
-  );
-  const last = state.blocks[state.blocks.length - 1];
-  if (last) {
-    selectedId = last.id;
-    render();
-    focusBlockAfterTypeChange(last, last.type);
-  }
-  $('#addDialog')?.close();
-  showToast(types.length === 1 ? 'Block added' : `${types.length} blocks added`);
-}
-
-function toggleHotPicker(routineId) {
-  if (hotPickerSelected.has(routineId)) hotPickerSelected.delete(routineId);
-  else hotPickerSelected.add(routineId);
-  syncHotPickerUI();
-}
-
-function removeHotPicker(routineId) {
-  hotPickerSelected.delete(routineId);
-  syncHotPickerUI();
-}
-
-function syncHotPickerUI() {
-  $$('#hotRoutineList .hot-routine-item').forEach((btn) => {
-    const id = btn.dataset.routineId;
-    const sel = hotPickerSelected.has(id);
-    btn.classList.toggle('is-picker-selected', sel);
-    btn.setAttribute('aria-pressed', sel ? 'true' : 'false');
-    const rm = btn.querySelector(':scope > .picker-remove');
-    if (sel && !rm) btn.appendChild(createPickerRemoveBtn(() => removeHotPicker(id)));
-    else if (!sel && rm) rm.remove();
+  $$('#addDialog [data-side-panel]').forEach((card) => {
+    const mode = card.dataset.sidePanel;
+    const count =
+      mode === 'hot' ? hotPickerSelected.size : mode === 'brainbreak' ? brainBreakPickerSelected.size : 0;
+    card.classList.toggle('is-side-panel-open', addDialogSideMode === mode);
+    card.classList.toggle('is-side-panel-picked', count > 0);
+    card.setAttribute('aria-pressed', addDialogSideMode === mode || count > 0 ? 'true' : 'false');
   });
-  const done = $('#hotPickerDone');
-  if (done) done.disabled = hotPickerSelected.size === 0;
+  const done = $('#postPickerDone');
+  if (done) {
+    done.disabled =
+      postPickerSelected.size === 0 &&
+      hotPickerSelected.size === 0 &&
+      brainBreakPickerSelected.size === 0;
+  }
 }
 
-function commitHotPicker() {
-  const routineIds = [...hotPickerSelected];
-  if (!routineIds.length) return;
-  hotPickerSelected.clear();
-  syncHotPickerUI();
+function setAddDialogSideContent(mode, { animate = false } = {}) {
+  const hotList = $('#hotRoutineList');
+  const brainList = $('#brainBreakRoutineList');
+  const copy = ADD_DIALOG_SIDE_COPY[mode];
+  if (!copy) return;
+
+  const titleEl = $('#addDialogSideTitle');
+  const introEl = $('#addDialogSideIntro');
+  if (titleEl) titleEl.textContent = copy.title;
+  if (introEl) introEl.textContent = copy.intro;
+
+  if (mode === 'hot') {
+    buildHotRoutineList();
+  } else {
+    buildBrainBreakRoutineList();
+  }
+
+  [hotList, brainList].forEach((el) => {
+    if (!el) return;
+    const active = el.dataset.sidePane === mode;
+    el.classList.toggle('is-active', active);
+    if (animate && active) {
+      el.classList.remove('is-entering');
+      void el.offsetWidth;
+      el.classList.add('is-entering');
+      el.addEventListener(
+        'animationend',
+        () => el.classList.remove('is-entering'),
+        { once: true }
+      );
+    }
+    if (active) {
+      el.hidden = false;
+      el.removeAttribute('hidden');
+    } else {
+      el.hidden = true;
+      el.setAttribute('hidden', '');
+    }
+  });
+}
+
+function closeAddDialogSidePanel() {
+  addDialogSideMode = null;
+  const side = $('#addDialogSide');
+  if (side) {
+    side.classList.remove('is-open');
+    side.setAttribute('aria-hidden', 'true');
+  }
+  $$('.add-dialog-side-pane').forEach((el) => el.classList.remove('is-active', 'is-entering'));
+  syncPostPickerUI();
+}
+
+function openAddDialogSidePanel(mode) {
+  const side = $('#addDialogSide');
+  const copy = ADD_DIALOG_SIDE_COPY[mode];
+  if (!side || !copy) return;
+
+  if (addDialogSideMode === mode) {
+    closeAddDialogSidePanel();
+    return;
+  }
+
+  const wasOpen = side.classList.contains('is-open');
+  addDialogSideMode = mode;
+  setAddDialogSideContent(mode, { animate: wasOpen });
+
+  if (!wasOpen) {
+    side.classList.add('is-open');
+    side.setAttribute('aria-hidden', 'false');
+  }
+
+  syncPostPickerUI();
+}
+
+function flushHotPickerSelections(routineIds = [...hotPickerSelected]) {
+  if (!routineIds.length) return [];
 
   normalizePresentOrder();
   const presentOrderBefore = [...state.presentOrder];
@@ -5829,15 +6116,107 @@ function commitHotPicker() {
     if (hotInsertUndoStack.length > 12) hotInsertUndoStack.shift();
     updateUndoButton();
     selectedId = insertedIds[insertedIds.length - 1];
+  }
+  return insertedIds;
+}
+
+function flushBrainBreakPickerSelections(activityIds = [...brainBreakPickerSelected]) {
+  if (!activityIds.length) return [];
+
+  normalizePresentOrder();
+  const presentOrderBefore = [...state.presentOrder];
+  const insertedIds = [];
+  let anchorId = selectedId;
+
+  activityIds.forEach((activityId) => {
+    const blockId = insertBrainBreakActivity(activityId, {
+      anchorId,
+      skipUndo: true,
+      skipToast: true,
+      skipRender: true,
+      skipPersist: true,
+      skipScroll: true,
+    });
+    if (blockId) {
+      insertedIds.push(blockId);
+      anchorId = blockId;
+    }
+  });
+
+  if (insertedIds.length) {
+    hotInsertUndoStack.push({ insertedIds, presentOrder: presentOrderBefore });
+    if (hotInsertUndoStack.length > 12) hotInsertUndoStack.shift();
+    updateUndoButton();
+    selectedId = insertedIds[insertedIds.length - 1];
+  }
+  return insertedIds;
+}
+
+function commitPostPicker() {
+  const types = [...postPickerSelected];
+  const hotRoutineIds = [...hotPickerSelected];
+  const brainActivityIds = [...brainBreakPickerSelected];
+  if (!types.length && !hotRoutineIds.length && !brainActivityIds.length) return;
+
+  postPickerSelected.clear();
+  hotPickerSelected.clear();
+  brainBreakPickerSelected.clear();
+
+  types.forEach((type) =>
+    addBlock(type, { skipRender: true, skipFocus: true, skipToast: true })
+  );
+
+  const hotIds = flushHotPickerSelections(hotRoutineIds);
+  const brainIds = flushBrainBreakPickerSelections(brainActivityIds);
+
+  const totalAdded = types.length + hotIds.length + brainIds.length;
+  if (totalAdded) {
     persist();
     render();
     resizeCanvasToContent();
-    scrollToHotRoutine(selectedId);
-    const n = insertedIds.length;
-    showToast(n === 1 ? `${findHotRoutine(routineIds[0])?.name || 'Routine'} added` : `${n} HOT activities added`);
+    const last = state.blocks[state.blocks.length - 1];
+    if (last) {
+      selectedId = last.id;
+      if (types.length && types.includes(last.type)) {
+        focusBlockAfterTypeChange(last, last.type);
+      } else {
+        scrollToHotRoutine(last.id);
+      }
+    }
   }
 
-  $('#hotDialog')?.close();
+  closeAddDialogSidePanel();
+  $('#addDialog')?.close();
+
+  const parts = [];
+  if (types.length) parts.push(`${types.length} post${types.length === 1 ? '' : 's'}`);
+  if (hotIds.length) parts.push(`${hotIds.length} HOT`);
+  if (brainIds.length) parts.push(`${brainIds.length} brain break${brainIds.length === 1 ? '' : 's'}`);
+  showToast(parts.length ? `Added ${parts.join(', ')}` : 'Nothing added');
+}
+
+function toggleHotPicker(routineId) {
+  if (hotPickerSelected.has(routineId)) hotPickerSelected.delete(routineId);
+  else hotPickerSelected.add(routineId);
+  syncHotPickerUI();
+}
+
+function removeHotPicker(routineId) {
+  hotPickerSelected.delete(routineId);
+  syncHotPickerUI();
+}
+
+function syncHotPickerUI() {
+  $$('#hotRoutineList .hot-routine-item').forEach((btn) => {
+    const id = btn.dataset.routineId;
+    const sel = hotPickerSelected.has(id);
+    btn.classList.toggle('is-picker-selected', sel);
+    btn.setAttribute('aria-pressed', sel ? 'true' : 'false');
+    const rm = btn.querySelector(':scope > .picker-remove');
+    if (sel && !rm) btn.appendChild(createPickerRemoveBtn(() => removeHotPicker(id)));
+    else if (!sel && rm) rm.remove();
+  });
+  syncPostPickerUI();
 }
 
 function insertHotRoutine(routineId, opts = {}) {
@@ -5935,17 +6314,6 @@ function buildHotRoutineList() {
   syncHotPickerUI();
 }
 
-function openHotDialog() {
-  const dialog = $('#hotDialog');
-  if (!dialog) {
-    showToast('HOT dialog missing');
-    return;
-  }
-  hotPickerSelected.clear();
-  buildHotRoutineList();
-  if (!openDialogNearFab(dialog)) showToast('Could not open HOT activities');
-}
-
 function initHotDialog() {
   buildHotRoutineList();
 }
@@ -5991,8 +6359,7 @@ function syncBrainBreakPickerUI() {
     if (sel && !rm) btn.appendChild(createPickerRemoveBtn(() => removeBrainBreakPicker(id)));
     else if (!sel && rm) rm.remove();
   });
-  const done = $('#brainBreakPickerDone');
-  if (done) done.disabled = brainBreakPickerSelected.size === 0;
+  syncPostPickerUI();
 }
 
 function insertBrainBreakActivity(activityId, opts = {}) {
@@ -6059,52 +6426,6 @@ function insertBrainBreakActivity(activityId, opts = {}) {
   return block.id;
 }
 
-function commitBrainBreakPicker() {
-  const activityIds = [...brainBreakPickerSelected];
-  if (!activityIds.length) return;
-  brainBreakPickerSelected.clear();
-  syncBrainBreakPickerUI();
-
-  normalizePresentOrder();
-  const presentOrderBefore = [...state.presentOrder];
-  const insertedIds = [];
-  let anchorId = selectedId;
-
-  activityIds.forEach((activityId) => {
-    const blockId = insertBrainBreakActivity(activityId, {
-      anchorId,
-      skipUndo: true,
-      skipToast: true,
-      skipRender: true,
-      skipPersist: true,
-      skipScroll: true,
-    });
-    if (blockId) {
-      insertedIds.push(blockId);
-      anchorId = blockId;
-    }
-  });
-
-  if (insertedIds.length) {
-    hotInsertUndoStack.push({ insertedIds, presentOrder: presentOrderBefore });
-    if (hotInsertUndoStack.length > 12) hotInsertUndoStack.shift();
-    updateUndoButton();
-    selectedId = insertedIds[insertedIds.length - 1];
-    persist();
-    render();
-    resizeCanvasToContent();
-    scrollToHotRoutine(selectedId);
-    const n = insertedIds.length;
-    showToast(
-      n === 1
-        ? `${findBrainBreakActivity(activityIds[0])?.title || 'Brain break'} added`
-        : `${n} brain breaks added`
-    );
-  }
-
-  $('#brainBreakDialog')?.close();
-}
-
 function buildBrainBreakRoutineList() {
   const listEl = $('#brainBreakRoutineList');
   if (!listEl) return;
@@ -6130,17 +6451,6 @@ function buildBrainBreakRoutineList() {
     });
   });
   syncBrainBreakPickerUI();
-}
-
-function openBrainBreakDialog() {
-  const dialog = $('#brainBreakDialog');
-  if (!dialog) {
-    showToast('Brain breaks dialog missing');
-    return;
-  }
-  brainBreakPickerSelected.clear();
-  buildBrainBreakRoutineList();
-  if (!openDialogNearFab(dialog)) showToast('Could not open brain breaks');
 }
 
 function initBrainBreakDialog() {
@@ -8156,6 +8466,7 @@ function applyGridWallTemplate(templateId, options = {}) {
   applyBackground();
   render();
   persist();
+  closeHomeScreen();
   $('#templatesDialog')?.close();
   $('#templateConfigDialog')?.close();
   pendingTemplateApply = null;
@@ -8273,20 +8584,25 @@ function applyBoardTemplate(templateId, options = {}) {
   setLayoutSelectValue(state.layoutMode || 'free');
   syncBoardTitle();
   applyBackground();
+  if (state.layoutMode) {
+    arrangeBlocks(state.layoutMode);
+  }
   resizeCanvasToContent();
 
   render();
   persist();
+  closeHomeScreen();
   $('#templatesDialog')?.close();
   $('#templateConfigDialog')?.close();
   pendingTemplateApply = null;
 
   const editNote = board.presentEditable ? ' · editable in Present' : '';
+  const layoutNote = state.layoutMode === 'grid-auto' ? ' · Fill screen layout' : '';
   const extra =
     templateId === 'gallery-walk'
       ? ' — add images or documents, then click a station to view full screen'
       : '';
-  showToast(`${tpl.name} ready${editNote}${extra}`);
+  showToast(`${tpl.name} ready${layoutNote}${editNote}${extra}`);
 }
 
 function requestApplyTemplate(tpl) {
@@ -8451,6 +8767,142 @@ function initGalleryViewer() {
 
 function initGridWallUI() {
   $('#btnGridWallPdf')?.addEventListener('click', exportGridWallPdf);
+  $('#btnGridWallClose')?.addEventListener('click', exitGridWallBoard);
+}
+
+// --- Home screen ---
+
+function openHomeScreen() {
+  const screen = $('#homeScreen');
+  const app = $('#app');
+  if (!screen || !app) return;
+  closePresent();
+  closeGalleryViewer();
+  closeFormatMenu();
+  closeAllDropdowns();
+  closeBlank();
+  closeOutline();
+  const continueBtn = $('#homeContinue');
+  const continueDesc = $('#homeContinueDesc');
+  const savedTitle = getSavedBoardTitle();
+  if (continueBtn) {
+    if (savedTitle) {
+      continueBtn.hidden = false;
+      if (continueDesc) continueDesc.textContent = savedTitle;
+    } else {
+      continueBtn.hidden = true;
+    }
+  }
+  screen.hidden = false;
+  screen.removeAttribute('hidden');
+  app.classList.add('home-open');
+}
+
+function closeHomeScreen() {
+  const screen = $('#homeScreen');
+  const app = $('#app');
+  if (screen) {
+    screen.hidden = true;
+    screen.setAttribute('hidden', '');
+  }
+  app?.classList.remove('home-open');
+}
+
+function initHomeScreen() {
+  const screen = $('#homeScreen');
+  if (!screen) return;
+  screen.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-home]');
+    if (!btn) return;
+    const action = btn.dataset.home;
+    if (action === 'template') {
+      closeHomeScreen();
+      openTemplatesDialog();
+    } else if (action === 'new') {
+      applyEmptyHomeBoard();
+      closeHomeScreen();
+      showToast('New board — click + to add your first card');
+    } else if (action === 'open') {
+      openFilePicker();
+    } else if (action === 'continue') {
+      continueLastBoard();
+    }
+  });
+}
+
+function continueLastBoard() {
+  const loaded = loadState();
+  if (!loaded.hasSaved) {
+    showToast('No saved board in this browser');
+    return;
+  }
+  state = loaded.state;
+  selectedId = null;
+  layoutUndoStack = [];
+  hotInsertUndoStack = [];
+  updateUndoButton();
+  setLayoutSelectValue(state.layoutMode || 'free');
+  syncBoardTitle();
+  applyBackground();
+  syncGridWallChrome();
+  syncBoardTemplateBar();
+  if (state.layoutMode && state.blocks.length) {
+    arrangeBlocks(state.layoutMode);
+  }
+  resizeCanvasToContent();
+  render();
+  closeHomeScreen();
+  showToast('Board restored');
+}
+
+function applyEmptyHomeBoard() {
+  closePresent();
+  closeGalleryViewer();
+  closeFormatMenu();
+  closeAllDropdowns();
+  closeBlank();
+  closeOutline();
+  resetTimer();
+  blankBlockId = null;
+  blankCanvasOwnerId = null;
+  blankDrawDirty = false;
+  resetBlankCanvasBuffer();
+
+  state = normalizeBoardState({
+    title: DEFAULTS.title,
+    background: DEFAULTS.background,
+    layoutMode: null,
+    blocks: [],
+    presentOrder: [],
+    blankContent: '',
+    blankDraw: null,
+    timerSeconds: 300,
+    mindMapCenterId: null,
+    mindMapOrbitRadius: null,
+    boardTemplate: null,
+    gridWall: null,
+    defaultAccent: null,
+  });
+
+  selectedId = null;
+  layoutUndoStack = [];
+  hotInsertUndoStack = [];
+  updateUndoButton();
+  setLayoutSelectValue('free');
+  syncBoardTitle();
+  applyBackground();
+  hideGridWallSurface();
+  syncGridWallChrome();
+  syncBoardTemplateBar();
+  render();
+  persist();
+}
+
+function exitGridWallBoard() {
+  if (!isGridWallBoard()) return;
+  if (!confirm('Close this wall and return home? Unsaved changes will be cleared.')) return;
+  applyEmptyHomeBoard();
+  openHomeScreen();
 }
 
 function createTemplateCard(tpl) {
@@ -8532,53 +8984,11 @@ function openTemplatesDialog() {
 function newBoard() {
   if (
     (state.blocks.length || state.gridWall) &&
-    !confirm('Start a new board? Your current cards will be cleared.')
+    !confirm('Start a new board? Choose blank, template, or open a file from Home.')
   ) {
     return;
   }
-
-  closePresent();
-  closeGalleryViewer();
-  closeFormatMenu();
-  closeAllDropdowns();
-
-  closeBlank();
-  closeOutline();
-  resetTimer();
-  blankBlockId = null;
-  blankCanvasOwnerId = null;
-  blankDrawDirty = false;
-  resetBlankCanvasBuffer();
-
-  state = normalizeBoardState({
-    title: DEFAULTS.title,
-    background: DEFAULTS.background,
-    layoutMode: null,
-    blocks: [],
-    presentOrder: [],
-    blankContent: '',
-    blankDraw: null,
-    timerSeconds: 300,
-    mindMapCenterId: null,
-    mindMapOrbitRadius: null,
-    boardTemplate: null,
-    gridWall: null,
-    defaultAccent: null,
-  });
-
-  selectedId = null;
-  layoutUndoStack = [];
-  hotInsertUndoStack = [];
-  updateUndoButton();
-  setLayoutSelectValue('free');
-  syncBoardTitle();
-  applyBackground();
-  hideGridWallSurface();
-  syncGridWallChrome();
-  syncBoardTemplateBar();
-  render();
-  persist();
-  showToast('New board');
+  openHomeScreen();
 }
 
 function buildBoardExportJson() {
@@ -8733,6 +9143,7 @@ function importBoard(file) {
       syncGridWallChrome();
       render();
       scheduleDocxBackfill();
+      closeHomeScreen();
       showToast('Board opened');
     } catch {
       showToast('Could not read file');
@@ -8882,7 +9293,7 @@ function openBgDialog() {
   }
 }
 
-const FAB_ANCHORED_DIALOG_IDS = ['addDialog', 'hotDialog', 'brainBreakDialog'];
+const FAB_ANCHORED_DIALOG_IDS = ['addDialog'];
 const FAB_DIALOG_ANCHOR_GAP = 6;
 
 function clearDialogFabAnchor(dialog) {
@@ -8944,12 +9355,23 @@ function repositionOpenFabAnchoredDialogs() {
   });
 }
 
-function openAddDialog() {
+function resetAddDialogPickers() {
+  postPickerSelected.clear();
+  hotPickerSelected.clear();
+  brainBreakPickerSelected.clear();
+  closeAddDialogSidePanel();
+  syncPostPickerUI();
+}
+
+function showAddDialog() {
   const dialog = $('#addDialog');
   if (!dialog) return;
-  postPickerSelected.clear();
-  syncPostPickerUI();
   if (!openDialogNearFab(dialog)) showToast('Could not open add dialog');
+}
+
+function openAddDialog() {
+  resetAddDialogPickers();
+  showAddDialog();
 }
 
 function openFilePicker() {
@@ -9026,14 +9448,19 @@ function bindToolbar() {
     toggleHotPicker(item.dataset.routineId);
   });
 
-  $('#hotPickerDone')?.addEventListener('click', commitHotPicker);
-
-  $$('[data-open-hot]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      $('#addDialog').close();
-      openHotDialog();
+  $$('[data-side-panel]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      if (e.target.closest('.picker-remove')) return;
+      const dialog = $('#addDialog');
+      if (!dialog?.open) {
+        resetAddDialogPickers();
+        showAddDialog();
+      }
+      openAddDialogSidePanel(btn.dataset.sidePanel);
     });
   });
+
+  $('#addDialogSideClose')?.addEventListener('click', closeAddDialogSidePanel);
 
   $('#brainBreakRoutineList')?.addEventListener('click', (e) => {
     const item = e.target.closest('.hot-routine-item');
@@ -9041,31 +9468,13 @@ function bindToolbar() {
     toggleBrainBreakPicker(item.dataset.activityId);
   });
 
-  $('#brainBreakPickerDone')?.addEventListener('click', commitBrainBreakPicker);
-
-  $$('[data-open-brain-breaks]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      $('#addDialog').close();
-      openBrainBreakDialog();
-    });
-  });
-
   $('#addDialog')?.addEventListener('close', () => {
     postPickerSelected.clear();
+    hotPickerSelected.clear();
+    brainBreakPickerSelected.clear();
+    closeAddDialogSidePanel();
     syncPostPickerUI();
     clearDialogFabAnchor($('#addDialog'));
-  });
-
-  $('#hotDialog')?.addEventListener('close', () => {
-    hotPickerSelected.clear();
-    syncHotPickerUI();
-    clearDialogFabAnchor($('#hotDialog'));
-  });
-
-  $('#brainBreakDialog')?.addEventListener('close', () => {
-    brainBreakPickerSelected.clear();
-    syncBrainBreakPickerUI();
-    clearDialogFabAnchor($('#brainBreakDialog'));
   });
 
   let fabDialogResizeTimer;
@@ -9123,8 +9532,10 @@ function init() {
     initBoardTemplateBar();
     initGalleryViewer();
     initGridWallUI();
+    initHomeScreen();
     setLayoutSelectValue(state.layoutMode || 'free');
     render();
+    if (showHomeOnStart) openHomeScreen();
     scheduleDocxBackfill();
     updateTimerDisplays();
   } catch (err) {
