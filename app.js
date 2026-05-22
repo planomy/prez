@@ -1839,7 +1839,26 @@ function syncPresentWhiteboardFromBlank() {
   if (el) updateWhiteboardPreview(block);
 }
 
+function undockPresentCloseFromBlankChrome() {
+  const closeBtn = $('#presentClose');
+  const present = $('#presentOverlay');
+  if (!closeBtn || !present) return;
+  closeBtn.classList.remove('present-close--chrome');
+  if (closeBtn.parentElement !== present) {
+    present.insertBefore(closeBtn, present.firstChild);
+  }
+}
+
+function dockPresentCloseInBlankChrome() {
+  const closeBtn = $('#presentClose');
+  const chromeActions = $('#blankChromeActions');
+  if (!closeBtn || !chromeActions || closeBtn.parentElement === chromeActions) return;
+  chromeActions.appendChild(closeBtn);
+  closeBtn.classList.add('present-close--chrome');
+}
+
 function hidePresentWhiteboard() {
+  undockPresentCloseFromBlankChrome();
   if (!presentWhiteboardMounted) return;
   syncPresentWhiteboardFromBlank();
   const overlay = $('#blankOverlay');
@@ -1887,6 +1906,7 @@ function mountPresentWhiteboard(block) {
   overlay.removeAttribute('hidden');
   overlay.classList.add('blank-overlay--present');
   $('#blankClose')?.setAttribute('hidden', '');
+  dockPresentCloseInBlankChrome();
 
   const editor = $('#blankEditor');
   const content = block.blankContent || '';
@@ -7783,6 +7803,25 @@ function insertBlankTableFromControls() {
   showToast('Table inserted');
 }
 
+function syncBlankWhiteboardTitle() {
+  const block = getBlankBlock();
+  const title = block?.title?.trim() || '';
+  const show = block?.type === 'whiteboard' && !!title;
+  for (const id of ['blankWhiteboardTitle', 'blankWhiteboardTitleDraw']) {
+    const el = $(`#${id}`);
+    if (!el) continue;
+    if (show) {
+      el.textContent = title;
+      el.hidden = false;
+      el.removeAttribute('hidden');
+    } else {
+      el.textContent = '';
+      el.hidden = true;
+      el.setAttribute('hidden', '');
+    }
+  }
+}
+
 function openBlank(blockId) {
   closeFormatMenu();
   closeOutline();
@@ -7822,6 +7861,7 @@ function openBlank(blockId) {
   const block = blankBlockId ? getBlock(blankBlockId) : null;
   if (block?.type === 'whiteboard') setBlankTab('draw');
   else setBlankTab('type');
+  syncBlankWhiteboardTitle();
   resetBlankCanvasBuffer();
   initBlankCanvas();
   requestAnimationFrame(() => {
@@ -7850,6 +7890,7 @@ function closeBlank() {
   blankBlockId = null;
   blankCanvasOwnerId = null;
   blankDrawCtx = null;
+  syncBlankWhiteboardTitle();
   const canvas = $('#blankCanvas');
   if (canvas) delete canvas.dataset.bound;
   resetBlankCanvasBuffer();

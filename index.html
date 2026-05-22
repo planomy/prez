@@ -366,7 +366,9 @@
         <button type="button" class="blank-tab is-active" data-blank-tab="type" role="tab">Type</button>
         <button type="button" class="blank-tab" data-blank-tab="draw" role="tab">Draw</button>
       </div>
-      <button type="button" id="blankClose" class="btn btn-ghost">Done</button>
+      <div id="blankChromeActions" class="blank-chrome-actions">
+        <button type="button" id="blankClose" class="btn btn-ghost">Done</button>
+      </div>
     </div>
     <div class="blank-pane blank-pane-type" data-blank-pane="type">
       <div class="blank-type-toolbar">
@@ -381,12 +383,15 @@
           </label>
           <button type="button" id="blankInsertTable" class="btn btn-ghost btn-sm">Insert table</button>
         </div>
+        <p id="blankWhiteboardTitle" class="blank-whiteboard-title" hidden></p>
       </div>
       <div class="blank-editor" id="blankEditor" data-placeholder="Type for the class…"></div>
     </div>
     <div class="blank-pane blank-pane-draw" data-blank-pane="draw" hidden>
+      <p id="blankWhiteboardTitleDraw" class="blank-whiteboard-title blank-whiteboard-title--draw-pane" hidden></p>
       <canvas id="blankCanvas" class="blank-canvas"></canvas>
       <div class="blank-draw-tools">
+        <div class="blank-draw-tools-row">
         <div class="blank-draw-tools-main">
           <div class="blank-draw-modes" role="group" aria-label="Tool">
             <button type="button" class="blank-draw-mode is-active" data-draw-tool="pen" aria-pressed="true">Pen</button>
@@ -410,6 +415,7 @@
           </button>
         </div>
         <button type="button" id="blankClearDraw" class="btn btn-ghost btn-sm">Clear drawing</button>
+        </div>
       </div>
     </div>
   </div>

@@ -1624,6 +1624,11 @@ body {
 .present-card-stack .present-body--text {
   flex: 1 1 auto;
   min-height: 0;
+  overflow-y: visible;
+}
+
+.present-stage--expanded .present-card-stack .present-body--text,
+.present-overlay.present-expanded .present-card-stack .present-body--text {
   overflow-y: auto;
 }
 
@@ -3618,7 +3623,10 @@ body.table-col-resize-active .blank-table-wrap {
 /* Present mode */
 .present-overlay {
   position: fixed;
-  inset: 0;
+  top: var(--toolbar-h);
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 2000;
   background: #0a0c10;
   display: flex;
@@ -3626,6 +3634,13 @@ body.table-col-resize-active .blank-table-wrap {
   align-items: center;
   justify-content: center;
   animation: fadeIn 0.35s var(--ease);
+}
+
+.present-overlay:fullscreen {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
 }
 
 .present-overlay[hidden] {
@@ -3644,6 +3659,19 @@ body.table-col-resize-active .blank-table-wrap {
   padding: 48px;
   animation: slideUp 0.4s var(--ease);
   transition: width 0.35s var(--ease), max-height 0.35s var(--ease), padding 0.35s var(--ease);
+}
+
+/* Regular present: no outer stage scrollbar when the card fits — scroll inside the card if needed */
+.present-stage:not(.present-stage--expanded) {
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.present-stage:not(.present-stage--expanded) > .present-card {
+  max-height: calc(88vh - 96px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  box-sizing: border-box;
 }
 
 .present-overlay.present-expanded {
@@ -4156,6 +4184,10 @@ body.table-col-resize-active .blank-table-wrap {
 .present-card--list-reveal .present-body--text {
   flex: 1 1 auto;
   min-height: 0;
+  overflow-y: visible;
+}
+
+.present-stage--expanded .present-card--list-reveal .present-body--text {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
@@ -4461,9 +4493,9 @@ body.table-col-resize-active .blank-table-wrap {
 }
 
 .present-close {
-  position: fixed;
-  top: 20px;
-  right: 24px;
+  position: absolute;
+  top: 14px;
+  right: 18px;
   width: 48px;
   height: 48px;
   border: none;
@@ -4480,8 +4512,17 @@ body.table-col-resize-active .blank-table-wrap {
   background: rgba(255, 255, 255, 0.2);
 }
 
+.present-close.present-close--chrome {
+  position: static;
+  top: auto;
+  right: auto;
+  width: 40px;
+  height: 40px;
+  font-size: 1.5rem;
+}
+
 .present-nav {
-  position: fixed;
+  position: absolute;
   top: 50%;
   transform: translateY(-50%);
   width: 52px;
@@ -4505,7 +4546,7 @@ body.table-col-resize-active .blank-table-wrap {
 .present-next { right: 24px; }
 
 .present-footer {
-  position: fixed;
+  position: absolute;
   bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
@@ -4863,6 +4904,13 @@ body.blank-open .hint {
   border-bottom: 1px solid var(--border);
 }
 
+.blank-chrome-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
 #blankClose {
   font-weight: 600;
   min-width: 88px;
@@ -4903,11 +4951,44 @@ body.blank-open .hint {
 
 .blank-type-toolbar {
   flex-shrink: 0;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 12px;
   padding: 10px 20px;
   border-bottom: 1px solid var(--border);
+}
+
+.blank-whiteboard-title {
+  grid-column: 2;
+  margin: 0;
+  padding: 0 12px;
+  font-family: var(--font);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-inverse);
+  text-align: center;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: min(48vw, 520px);
+}
+
+.blank-type-toolbar .blank-table-insert {
+  grid-column: 1;
+  justify-self: start;
+}
+
+.blank-whiteboard-title[hidden] {
+  display: none !important;
+}
+
+.blank-whiteboard-title--draw-pane {
+  flex-shrink: 0;
+  padding: 10px 20px 0;
+  text-align: center;
+  max-width: none;
 }
 
 .blank-table-insert {
@@ -5127,14 +5208,22 @@ body.blank-open .hint {
 }
 
 .blank-draw-tools {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px 20px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.blank-draw-tools-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 12px 20px;
-  border-top: 1px solid var(--border);
-  flex-shrink: 0;
   flex-wrap: wrap;
+  width: 100%;
 }
 
 .blank-draw-tools-main {
