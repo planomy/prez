@@ -1358,8 +1358,7 @@ function initToolbarMenus() {
     const action = item.dataset.file;
     if (action === 'save') return;
     closeToolbarMenus();
-    if (action === 'home') openHomeScreen();
-    else if (action === 'templates') openTemplatesDialog();
+    if (action === 'templates') openTemplatesDialog();
     else if (action === 'new') newBoard();
     else if (action === 'open') openFilePicker();
     else if (action === 'grid-wall-pdf') exportGridWallPdf();
@@ -8772,6 +8771,18 @@ function initGridWallUI() {
 
 // --- Home screen ---
 
+function requestOpenHome() {
+  const screen = $('#homeScreen');
+  if (screen && !screen.hidden) return;
+  if (
+    (state.blocks.length || state.gridWall) &&
+    !confirm('Go to Home? This board stays saved in this browser.')
+  ) {
+    return;
+  }
+  openHomeScreen();
+}
+
 function openHomeScreen() {
   const screen = $('#homeScreen');
   const app = $('#app');
@@ -8796,6 +8807,8 @@ function openHomeScreen() {
   screen.hidden = false;
   screen.removeAttribute('hidden');
   app.classList.add('home-open');
+  const btnHome = $('#btnHome');
+  if (btnHome) btnHome.disabled = true;
 }
 
 function closeHomeScreen() {
@@ -8806,6 +8819,8 @@ function closeHomeScreen() {
     screen.setAttribute('hidden', '');
   }
   app?.classList.remove('home-open');
+  const btnHome = $('#btnHome');
+  if (btnHome) btnHome.disabled = false;
 }
 
 function initHomeScreen() {
@@ -9385,6 +9400,11 @@ function openFilePicker() {
 
 function bindToolbar() {
   initToolbarMenus();
+
+  $('#btnHome')?.addEventListener('click', () => {
+    closeToolbarMenus();
+    requestOpenHome();
+  });
 
   boardTitle?.addEventListener('input', () => {
     state.title = boardTitle.value.trim() || DEFAULTS.title;

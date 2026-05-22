@@ -85,10 +85,21 @@ body {
   max-width: min(520px, 42vw);
 }
 
-.brand-mark {
-  color: var(--accent);
-  font-size: 14px;
+.brand .btn-home {
   flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  color: rgba(244, 246, 248, 0.72);
+}
+
+.brand .btn-home:hover:not(:disabled) {
+  color: var(--text-inverse);
+}
+
+.brand .btn-home:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .board-title {
