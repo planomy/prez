@@ -1092,6 +1092,61 @@ body {
   line-height: 1.2;
 }
 
+.block-type-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 280px;
+  max-width: min(360px, 92vw);
+}
+
+.block-type-panel[hidden] {
+  display: none !important;
+}
+
+.block-type-panel-back {
+  align-self: flex-start;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.block-type-panel-back:hover {
+  background: var(--bg-card-muted);
+  color: var(--text);
+}
+
+.block-type-panel-title {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.block-type-panel-intro {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+.block-type-panel-list {
+  max-height: min(52vh, 360px);
+  overflow-y: auto;
+  margin: 0 -4px;
+  padding: 0 4px 4px;
+}
+
+.block-type-dropdown:has(.block-type-panel:not([hidden])) {
+  min-width: 300px;
+}
+
 .size-section {
   display: flex;
   flex-direction: column;
@@ -3705,10 +3760,21 @@ body.table-col-resize-active .blank-table-wrap {
 .present-overlay.present-expanded .present-stage .present-card:is(
     .present-card--heading,
     .present-card--note,
-    .present-card--list
+    .present-card--list,
+    .present-card--brainbreak,
+    .present-card--hot,
+    .present-card--quiz
   ) {
   padding: 28px 40px 24px;
   justify-content: center;
+  align-items: stretch;
+}
+
+.present-overlay.present-expanded .present-stage .present-card:is(
+    .present-card--heading,
+    .present-card--note,
+    .present-card--list
+  ) {
   align-items: stretch;
 }
 
@@ -3860,6 +3926,104 @@ body.table-col-resize-active .blank-table-wrap {
   font-size: 26pt;
 }
 
+/* Max present = 2× regular present scale */
+.present-overlay.present-expanded .present-stage .present-card {
+  font-size: 50pt;
+}
+
+.present-overlay.present-expanded .present-stage .present-card.present-card--present-editable {
+  font-size: 50pt;
+}
+
+.present-overlay.present-expanded .present-stage .present-card:is(
+    .present-card--note,
+    .present-card--list,
+    .present-card--heading,
+    .present-card--table
+  ) {
+  font-size: 50pt;
+}
+
+.present-overlay.present-expanded .present-stage .present-card.present-card--heading {
+  font-size: 75pt;
+}
+
+.present-overlay.present-expanded .present-stage .present-card h1,
+.present-overlay.present-expanded .present-stage .present-card h2 {
+  font-size: 4.5rem;
+}
+
+.present-overlay.present-expanded .present-card:is(
+    .present-card--heading,
+    .present-card--note,
+    .present-card--list
+  ).present-text-size-sm {
+  font-size: 40pt;
+}
+
+.present-overlay.present-expanded .present-card:is(
+    .present-card--heading,
+    .present-card--note,
+    .present-card--list
+  ).present-text-size-md {
+  font-size: 50pt;
+}
+
+.present-overlay.present-expanded .present-card:is(
+    .present-card--heading,
+    .present-card--note,
+    .present-card--list
+  ).present-text-size-lg {
+  font-size: 68pt;
+}
+
+.present-overlay.present-expanded .present-card.present-card--heading.present-text-size-sm {
+  font-size: 60pt;
+}
+
+.present-overlay.present-expanded .present-card.present-card--heading.present-text-size-md {
+  font-size: 75pt;
+}
+
+.present-overlay.present-expanded .present-card.present-card--heading.present-text-size-lg {
+  font-size: 102pt;
+}
+
+/* Long HOT copy (Socratic stems, SOAPSTone): 75% of max-present scale (50pt → 37.5pt) */
+.present-overlay.present-expanded .present-stage .present-card.present-card--hot.present-card--hot-compact,
+.present-overlay.present-expanded .present-stage .present-card[data-hot-routine='socratic-stems'],
+.present-overlay.present-expanded .present-stage .present-card[data-hot-routine='soapstone'] {
+  font-size: 37.5pt !important;
+  line-height: 1.45;
+}
+
+.present-overlay.present-expanded .present-stage .present-card.present-card--hot-compact .brainbreak-category-head {
+  padding: 6px 10px;
+}
+
+.present-overlay.present-expanded .present-stage .present-card.present-card--hot-compact .brainbreak-activities {
+  padding: 6px;
+}
+
+.present-overlay.present-expanded .present-stage .present-card.present-card--hot-compact .present-hot-panel-content,
+.present-overlay.present-expanded .present-stage .present-card.present-card--hot-compact .present-hot-panel-intro {
+  padding: 0.75rem 1rem;
+}
+
+/* SOAPSTone: 10% smaller in regular present only (25pt → 22.5pt) */
+.present-overlay:not(.present-expanded) .present-stage .present-card[data-hot-routine='soapstone'] {
+  font-size: 22.5pt !important;
+  line-height: 1.45;
+}
+
+.present-overlay:not(.present-expanded) .present-stage .present-card[data-hot-routine='soapstone'].present-text-size-sm {
+  font-size: 18pt !important;
+}
+
+.present-overlay:not(.present-expanded) .present-stage .present-card[data-hot-routine='soapstone'].present-text-size-lg {
+  font-size: 30.6pt !important;
+}
+
 .present-stage .present-card[data-accent] {
   background: var(--accent-surface, #fff);
   border: 3px solid var(--accent-solid, transparent);
@@ -3884,8 +4048,100 @@ body.table-col-resize-active .blank-table-wrap {
 .present-stage .present-card[data-accent] .present-body,
 .present-stage .present-card[data-accent] .present-body--text,
 .present-stage .present-card[data-accent] p,
-.present-stage .present-card[data-accent] li {
+.present-stage .present-card[data-accent] li,
+.present-stage .present-card[data-accent] .present-brainbreak-progress,
+.present-stage .present-card[data-accent] .present-brainbreak-category,
+.present-stage .present-card[data-accent] .present-quiz-progress,
+.present-stage .present-card[data-accent] .present-quiz-question,
+.present-stage .present-card[data-accent] .present-quiz-hint,
+.present-stage .present-card[data-accent] .present-reveal-hint,
+.present-stage .present-card[data-accent] .present-bloom-task,
+.present-stage .present-card[data-accent] .present-timer {
   color: var(--card-text, inherit);
+}
+
+.present-stage .present-card[data-accent] .present-brainbreak-progress,
+.present-stage .present-card[data-accent] .present-quiz-progress {
+  opacity: 0.9;
+}
+
+.present-stage .present-card[data-accent] .present-reveal-hint {
+  color: var(--card-text-muted, rgba(0, 0, 0, 0.45));
+}
+
+/* Nested routine panels (HOT / brain break): dark text on light inner surface */
+.routine-panel-readable {
+  color: #1a1d23;
+  --card-text: #1a1d23;
+  --card-text-muted: rgba(26, 29, 35, 0.72);
+}
+
+.block[data-accent] .routine-panel-readable :is(
+    p,
+    li,
+    strong,
+    em,
+    span,
+    h1,
+    h2,
+    h3,
+    h4,
+    td,
+    th,
+    .block-content,
+    .present-body--text,
+    .present-body,
+    .brainbreak-activity-title,
+    .brainbreak-activity-detail
+  ),
+.present-stage .present-card[data-accent] .routine-panel-readable :is(
+    p,
+    li,
+    strong,
+    em,
+    span,
+    h1,
+    h2,
+    h3,
+    h4,
+    td,
+    th,
+    .block-content,
+    .present-body--text,
+    .present-body,
+    .present-hot-panel-content,
+    .present-hot-panel-intro,
+    .present-brainbreak-title,
+    .present-brainbreak-detail,
+    .brainbreak-activity-title,
+    .brainbreak-activity-detail
+  ) {
+  color: #1a1d23;
+}
+
+.block[data-accent] .routine-panel-readable .block-content:empty::before {
+  color: rgba(26, 29, 35, 0.55);
+}
+
+.block[data-accent] .routine-panel-readable .block-content a,
+.present-stage .present-card[data-accent] .routine-panel-readable .present-body--text a {
+  color: #1d4ed8;
+}
+
+.present-stage .present-card[data-accent] .present-brainbreak-card .present-brainbreak-title {
+  color: var(--bb-accent);
+}
+
+/* Category header on nested panels stays on the coloured band */
+.present-stage .present-card[data-accent] .brainbreak-category-head,
+.present-stage .present-card[data-accent] .brainbreak-category-head *,
+.block[data-accent] .brainbreak-category-head,
+.block[data-accent] .brainbreak-category-head * {
+  color: #fff;
+}
+
+.present-stage .present-card[data-accent] .routine-panel-readable .present-brainbreak-title {
+  color: var(--bb-accent);
 }
 
 .present-stage .present-card[data-accent] th {
@@ -4395,7 +4651,7 @@ body.table-col-resize-active .blank-table-wrap {
 }
 
 .present-overlay.present-expanded .present-card > :not(.present-expand):not(h1) {
-  flex: 1;
+  flex: 0 0 auto;
   min-height: 0;
 }
 
@@ -4403,20 +4659,55 @@ body.table-col-resize-active .blank-table-wrap {
     .present-card--heading,
     .present-card--note,
     .present-card--list
-  ) > .present-card-stack {
+  ) > .present-card-stack,
+.present-overlay.present-expanded .present-card:is(
+    .present-card--heading,
+    .present-card--note,
+    .present-card--list
+  ) > .present-max-text {
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
 }
 
-.present-overlay.present-expanded .present-card:is(
-    .present-card--heading,
-    .present-card--note,
-    .present-card--list
-  ) > :not(.present-expand):not(h1) {
+.present-overlay.present-expanded .present-card--brainbreak > .present-brainbreak-stack,
+.present-overlay.present-expanded .present-card--hot > .present-hot-stack,
+.present-overlay.present-expanded .present-card--quiz > .present-quiz-stack {
+  flex: 1 1 auto;
+  max-height: 100%;
+  width: 100%;
+  max-width: none;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 12px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.present-overlay.present-expanded .present-brainbreak-stack > *,
+.present-overlay.present-expanded .present-hot-stack > *,
+.present-overlay.present-expanded .present-quiz-stack > * {
+  flex: 0 0 auto;
+}
+
+.present-overlay.present-expanded .present-brainbreak-stack .present-brainbreak-card {
+  width: 100%;
+  max-width: 72rem;
+}
+
+.present-overlay.present-expanded .present-card .present-bloom-wrap,
+.present-overlay.present-expanded .present-card .present-poll,
+.present-overlay.present-expanded .present-card .present-doc-pdf,
+.present-overlay.present-expanded .present-card .present-doc-docx,
+.present-overlay.present-expanded .present-card .present-link-embed,
+.present-overlay.present-expanded .present-card.present-card--image > img,
+.present-overlay.present-expanded .present-card--worldmap .worldmap-image-base,
+.present-overlay.present-expanded .present-card > .present-body--sticky {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
 }
 
 .present-overlay.present-expanded .present-card--has-inline-image {
@@ -5752,10 +6043,125 @@ body.blank-open .hint {
   font-size: 1.28rem;
 }
 
-.brainbreak-board-note {
+.brainbreak-board-note,
+.hot-board-note {
   margin: 0;
   font-size: 0.75rem;
   opacity: 0.7;
+}
+
+.block--hot-activity .block-avatar {
+  display: none;
+}
+
+.block-hot {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: auto;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+}
+
+.block-hot .hot-routine-panel,
+.block-hot .brainbreak-category {
+  width: 100%;
+  max-width: none;
+}
+
+.hot-routine-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hot-routine-panel-body .hot-routine-panel-content,
+.hot-routine-panel-body .block-table-intro {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  min-height: 2.5em;
+  color: #1a1d23;
+}
+
+.hot-routine-panel-body .hot-routine-panel-table {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.hot-routine-panel-thumb {
+  display: flex;
+  justify-content: center;
+  padding: 4px 8px 0;
+}
+
+.hot-routine-panel-thumb img {
+  max-height: 72px;
+  width: auto;
+  border-radius: 8px;
+}
+
+.present-stage .present-card--hot > .present-hot-stack,
+.present-stage .present-card--brainbreak > .present-brainbreak-stack {
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+}
+
+.present-stage--expanded .present-card--hot,
+.present-stage--expanded .present-card--brainbreak {
+  align-items: stretch;
+}
+
+.present-hot-stack,
+.present-brainbreak-stack {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+.present-hot-panel,
+.present-hot-stack .brainbreak-category,
+.present-hot-stack .hot-routine-panel {
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+}
+
+.present-hot-panel .hot-routine-panel-body,
+.present-hot-panel .routine-panel-readable {
+  width: 100%;
+}
+
+.present-hot-panel .present-hot-panel-content,
+.present-hot-panel .present-hot-panel-intro {
+  margin: 0;
+  padding: 1rem 1.25rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  text-align: left;
+  color: #1a1d23;
+}
+
+.present-hot-thumb {
+  display: flex;
+  justify-content: center;
+  padding: 8px 8px 0;
+}
+
+.present-hot-thumb img {
+  max-height: min(22vh, 140px);
+  width: auto;
+  border-radius: 8px;
 }
 
 .block-brainbreak {
@@ -5865,13 +6271,60 @@ body.blank-open .hint {
   text-align: center;
 }
 
-.present-stage--expanded .present-brainbreak-card {
+.present-stage--expanded .present-brainbreak-card,
+.present-overlay.present-expanded .present-brainbreak-stack .present-brainbreak-card {
   max-width: 48rem;
   padding: 2.5rem 3rem;
 }
 
-.present-stage--expanded .present-brainbreak-detail {
+.present-stage--expanded .present-brainbreak-detail,
+.present-overlay.present-expanded .present-brainbreak-stack .present-brainbreak-detail {
   font-size: 1.35rem;
+}
+
+.present-overlay.present-expanded .present-brainbreak-stack .present-brainbreak-card {
+  max-width: 72rem;
+  padding: 4rem 4.5rem;
+}
+
+.present-overlay.present-expanded .present-brainbreak-progress {
+  font-size: 1.7rem;
+}
+
+.present-overlay.present-expanded .present-brainbreak-category {
+  font-size: 1.6rem;
+  margin-bottom: 1.5rem;
+}
+
+.present-overlay.present-expanded .present-brainbreak-title {
+  font-size: clamp(3rem, 8vw, 4.5rem);
+}
+
+.present-overlay.present-expanded .present-brainbreak-stack .present-brainbreak-detail {
+  font-size: clamp(2rem, 5vw, 2.5rem);
+}
+
+.present-overlay.present-expanded .present-quiz-progress {
+  font-size: 1.8rem;
+}
+
+.present-overlay.present-expanded .present-quiz-question {
+  font-size: clamp(2.5rem, 7vw, 3.5rem);
+}
+
+.present-overlay.present-expanded .present-quiz-hint,
+.present-overlay.present-expanded .present-quiz-feedback {
+  font-size: 2rem;
+}
+
+.present-overlay.present-expanded .present-quiz-option {
+  font-size: 2.4rem;
+  padding: 22px 26px;
+}
+
+.present-overlay.present-expanded .present-quiz {
+  width: min(1120px, 100%);
+  gap: 20px;
 }
 
 .worldmap-hint {

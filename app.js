@@ -18,6 +18,11 @@ const ACCENT_PASTEL = [
 ];
 const ACCENTS = [...ACCENT_DARK, ...ACCENT_PASTEL];
 
+const BLOCK_TYPE_PANEL_OPTIONS = [
+  { panel: 'hot', icon: '◆', label: 'HOT activity', iconClass: 'hot' },
+  { panel: 'brainbreak', icon: '⚡', label: 'Brain break', iconClass: 'brainbreak' },
+];
+
 const BLOCK_TYPE_OPTIONS = [
   { type: 'bloom', icon: '△', label: "Bloom's taxonomy", iconClass: 'bloom' },
   { type: 'brainbreak', icon: '⚡', label: 'Brain break', iconClass: 'brainbreak' },
@@ -53,7 +58,15 @@ function syncBlockHeader(el, block) {
   const authorEl = $('.block-author', el);
   const avatarEl = $('.block-avatar', el);
   if (authorEl) authorEl.textContent = getBlockTypeLabel(block);
-  if (avatarEl) avatarEl.textContent = getBlockHeaderAvatar(block);
+  if (avatarEl) {
+    const hideAvatar = !!block?.hotRoutineId;
+    avatarEl.hidden = hideAvatar;
+    if (hideAvatar) avatarEl.setAttribute('hidden', '');
+    else {
+      avatarEl.removeAttribute('hidden');
+      avatarEl.textContent = getBlockHeaderAvatar(block);
+    }
+  }
 }
 
 const BACKGROUNDS = [
@@ -603,6 +616,7 @@ function normalizeBoardState(data) {
     normalizePollData(b);
     normalizeQuizData(b);
     normalizeBrainBreakData(b);
+    normalizeHotBlockData(b);
     normalizeWorldMapData(b);
     normalizeTextCardStyle(b);
     if (b.type === 'table') normalizeTableColAligns(b);
@@ -887,6 +901,7 @@ function createBlockElement(block) {
   if (block.assessmentTask) el.classList.add('block--assessment-task');
   if (block.assessmentStage) el.classList.add('block--assessment-stage');
   if (block.reflectionColumn) el.classList.add('block--reflection-column');
+  if (block.hotRoutineId) el.classList.add('block--hot-activity');
   if (block.type === 'sticky') el.classList.add('block--sticky');
   el.dataset.blockId = block.id;
   el.dataset.blockType = block.type;
@@ -978,31 +993,227 @@ function refreshColorDots(el, block) {
   });
 }
 
+const BLOCK_TYPE_CHANGE_OPTIONS = [
+  ...BLOCK_TYPE_PANEL_OPTIONS,
+  ...BLOCK_TYPE_OPTIONS.filter((o) => o.type !== 'brainbreak'),
+];
+
+const BLOCK_TYPE_PANEL_COPY = {
+  hot: { title: 'HOT activity', intro: 'Pick a student instruction routine for this card.' },
+  brainbreak: { title: 'Brain break', intro: 'Pick one break idea for this card.' },
+};
+
 function populateTypeDropdown(el, block) {
   const dropdown = $('.block-type-dropdown', el);
   if (!dropdown || dropdown.dataset.built) return;
   dropdown.dataset.built = '1';
 
-  dropdown.innerHTML = '<span class="dropdown-label">Change to</span><div class="block-type-grid"></div>';
-  const grid = $('.block-type-grid', dropdown);
+  dropdown.innerHTML = `<div class="block-type-main">
+      <span class="dropdown-label">Change to</span>
+      <div class="block-type-grid"></div>
+    </div>
+    <div class="block-type-panel" hidden>
+      <button type="button" class="block-type-panel-back">← Back</button>
+      <p class="block-type-panel-title"></p>
+      <p class="block-type-panel-intro"></p>
+      <div class="block-type-panel-list hot-routine-list"></div>
+    </div>`;
 
-  BLOCK_TYPE_OPTIONS.forEach((opt) => {
+  const grid = $('.block-type-grid', dropdown);
+  BLOCK_TYPE_CHANGE_OPTIONS.forEach((opt) => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'block-type-option';
-    btn.dataset.type = opt.type;
+    if (opt.panel) btn.dataset.panel = opt.panel;
+    else btn.dataset.type = opt.type;
     btn.innerHTML = `<span class="type-icon ${opt.iconClass}">${opt.icon}</span><span class="block-type-label">${opt.label}</span>`;
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      convertBlockToType(block, opt.type);
+      if (opt.panel) openBlockTypePickerPanel(el, block, opt.panel, dropdown);
+      else convertBlockToType(block, opt.type);
     });
     grid.appendChild(btn);
   });
+
+  $('.block-type-panel-back', dropdown)?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeBlockTypePickerPanel(dropdown);
+    const typeBtn = $('.block-type-btn', el);
+    if (typeBtn) requestAnimationFrame(() => positionFloatingMenu(dropdown, typeBtn));
+  });
+}
+
+function closeBlockTypePickerPanel(dropdown) {
+  const main = $('.block-type-main', dropdown);
+  const panel = $('.block-type-panel', dropdown);
+  if (main) {
+    main.hidden = false;
+    main.removeAttribute('hidden');
+  }
+  if (panel) {
+    panel.hidden = true;
+    panel.setAttribute('hidden', '');
+  }
+}
+
+function openBlockTypePickerPanel(blockEl, block, mode, dropdown) {
+  const copy = BLOCK_TYPE_PANEL_COPY[mode];
+  const main = $('.block-type-main', dropdown);
+  const panel = $('.block-type-panel', dropdown);
+  const titleEl = $('.block-type-panel-title', dropdown);
+  const introEl = $('.block-type-panel-intro', dropdown);
+  const listEl = $('.block-type-panel-list', dropdown);
+  if (!copy || !main || !panel || !listEl) return;
+
+  if (titleEl) titleEl.textContent = copy.title;
+  if (introEl) introEl.textContent = copy.intro;
+  listEl.innerHTML = '';
+
+  if (mode === 'hot') {
+    appendHotRoutinePickerList(listEl, (routineId) => {
+      if (applyHotRoutineToBlock(block, routineId)) finishBlockTypePickerChange(block, 'HOT activity');
+    });
+  } else if (mode === 'brainbreak') {
+    appendBrainBreakPickerList(listEl, (activityId) => {
+      if (applyBrainBreakActivityToBlock(block, activityId)) finishBlockTypePickerChange(block, 'Brain break');
+    });
+  }
+
+  main.hidden = true;
+  main.setAttribute('hidden', '');
+  panel.hidden = false;
+  panel.removeAttribute('hidden');
+
+  const typeBtn = $('.block-type-btn', blockEl);
+  if (typeBtn) requestAnimationFrame(() => positionFloatingMenu(dropdown, typeBtn));
+}
+
+function finishBlockTypePickerChange(block, label) {
+  state.layoutMode = null;
+  setLayoutSelectValue('free');
+  selectedId = block.id;
+  render();
+  closeAllDropdowns();
+  showToast(`Changed to ${label}`);
+  focusBlockAfterTypeChange(block, block.type);
+}
+
+function appendHotRoutinePickerList(listEl, onSelect) {
+  const groups = window.PREZ_HOT_ROUTINES || [];
+  groups.forEach((group) => {
+    const heading = document.createElement('p');
+    heading.className = 'hot-routine-category';
+    heading.textContent = group.category;
+    listEl.appendChild(heading);
+
+    group.routines.forEach((routine) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'hot-routine-item';
+      btn.dataset.routineId = routine.id;
+      const iconHtml = routine.icon
+        ? `<img class="hot-routine-icon" src="${escapeAttr(routine.icon)}" alt="" width="52" height="52" />`
+        : '';
+      btn.innerHTML = `${iconHtml}<span class="hot-routine-text"><span class="hot-routine-name">${escapeHtml(routine.name)}</span>
+        <span class="hot-routine-meta">Student instructions</span>
+        <span class="hot-routine-blurb">${escapeHtml(routine.blurb)}</span></span>`;
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        onSelect(routine.id);
+      });
+      listEl.appendChild(btn);
+    });
+  });
+}
+
+function appendBrainBreakPickerList(listEl, onSelect) {
+  getBrainBreakLibrary().forEach((group) => {
+    const heading = document.createElement('p');
+    heading.className = 'hot-routine-category';
+    heading.textContent = group.category;
+    listEl.appendChild(heading);
+
+    (group.activities || []).forEach((activity) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'hot-routine-item';
+      btn.dataset.activityId = activity.id;
+      btn.innerHTML = `<span class="hot-routine-icon hot-routine-icon--emoji" aria-hidden="true">⚡</span>
+        <span class="hot-routine-text"><span class="hot-routine-name">${escapeHtml(activity.title)}</span>
+        <span class="hot-routine-meta">${escapeHtml(group.hint)}</span>
+        <span class="hot-routine-blurb">${escapeHtml(activity.detail)}</span></span>`;
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        onSelect(activity.id);
+      });
+      listEl.appendChild(btn);
+    });
+  });
+}
+
+function normalizeHotBlockData(block) {
+  if (!block?.hotRoutineId) return;
+  const routine = findHotRoutine(block.hotRoutineId);
+  if (!routine) {
+    delete block.hotRoutineId;
+    return;
+  }
+  if (block.imageData && routine.icon && block.imageData === routine.icon) {
+    delete block.imageData;
+  }
+}
+
+function applyHotRoutineToBlock(block, routineId) {
+  const routine = findHotRoutine(routineId);
+  if (!routine?.card) return false;
+
+  const spec = routine.card;
+  const type = spec.type || 'note';
+  applyBlockTypeDefaults(block, type);
+  if (spec.w) block.w = spec.w;
+  if (spec.h) block.h = spec.h;
+  if (spec.tableHtml) block.tableHtml = spec.tableHtml;
+  block.title = spec.title || routine.name;
+  if (spec.content) block.content = spec.content;
+  else if (type === 'note' || type === 'heading') block.content = '<p></p>';
+  delete block.imageData;
+  block.hotRoutineId = routineId;
+  return true;
+}
+
+function applyBrainBreakActivityToBlock(block, activityId) {
+  const item = findBrainBreakActivity(activityId);
+  if (!item) return false;
+
+  block.type = 'brainbreak';
+  clearBlockTypeFields(block);
+  block.title = item.title;
+  block.brainBreakCategories = [
+    {
+      name: item.categoryName,
+      hint: item.hint,
+      accent: item.accent,
+      surface: item.surface,
+      activities: [{ title: item.title, detail: item.detail }],
+    },
+  ];
+  if (block.w < 360) block.w = 360;
+  if (block.h < 300) block.h = 300;
+  return true;
 }
 
 function refreshTypeDropdown(el, block) {
+  closeBlockTypePickerPanel($('.block-type-dropdown', el));
   $$('.block-type-option', el).forEach((btn) => {
-    btn.classList.toggle('is-current', btn.dataset.type === block.type);
+    if (btn.dataset.panel === 'hot') {
+      btn.classList.toggle('is-current', !!block.hotRoutineId);
+      return;
+    }
+    if (btn.dataset.panel === 'brainbreak') {
+      btn.classList.toggle('is-current', block.type === 'brainbreak');
+      return;
+    }
+    btn.classList.toggle('is-current', btn.dataset.type === block.type && !block.hotRoutineId);
   });
 }
 
@@ -1754,7 +1965,8 @@ function canPreserveBlockBody(el, block) {
 }
 
 function blockAcceptsInlineImage(block) {
-  return block.type === 'note' || block.type === 'list' || (block.type === 'table' && block.hotRoutineId);
+  if (block?.hotRoutineId) return false;
+  return block.type === 'note' || block.type === 'list' || block.type === 'table';
 }
 
 function getInlineImageHTML(block) {
@@ -1765,6 +1977,9 @@ function getInlineImageHTML(block) {
 }
 
 function getTextCardBodyHTML(block, { titlePlaceholder, contentPlaceholder, fallbackContent }) {
+  if (block.hotRoutineId) {
+    return getHotActivityEditorHTML(block, { titlePlaceholder, contentPlaceholder, fallbackContent });
+  }
   const title = escapeHtml(block.title || '');
   const styleCls = blockUsesTextStyle(block) ? ` ${getTextCardStyleClassList(block)}` : '';
   return `<input class="block-title-input${styleCls}" type="text" value="${title}" placeholder="${titlePlaceholder}" data-field="title" />
@@ -1969,7 +2184,7 @@ function bindPresentEditable() {
 }
 
 function presentCardHasInlineImage(block) {
-  return !!(block.imageData && blockAcceptsInlineImage(block));
+  return !!(block.imageData && blockAcceptsInlineImage(block) && !block.hotRoutineId);
 }
 
 function listUsesRevealInPresent(block) {
@@ -2040,6 +2255,7 @@ function updateBlockElement(el, block) {
   el.classList.toggle('block--assessment-task', !!block.assessmentTask);
   el.classList.toggle('block--assessment-stage', !!block.assessmentStage);
   el.classList.toggle('block--reflection-column', !!block.reflectionColumn);
+  el.classList.toggle('block--hot-activity', !!block.hotRoutineId);
 
   const active = document.activeElement;
   if (
@@ -2108,6 +2324,8 @@ function syncBlockFooter(el, block) {
         `<label class="block-footer-btn">Add PDF / document<input type="file" accept="${GALLERY_DOC_ACCEPT}" data-field="gallery-document" hidden /></label>`
       );
     }
+  } else if (block.hotRoutineId) {
+    /* HOT instruction cards: Present only (same chrome as brain breaks) */
   } else {
     if (block.type === 'image' && block.imageData) {
       primary.push(getImageReplaceFooterHTML());
@@ -2316,6 +2534,13 @@ function getBodyHTML(block) {
     case 'sticky':
       return `<div class="block-sticky-body block-content" contenteditable="true" data-field="content" data-placeholder="Quick thought…">${block.content || '<p></p>'}</div>`;
     case 'table': {
+      if (block.hotRoutineId) {
+        return getHotActivityEditorHTML(block, {
+          titlePlaceholder: 'Table title',
+          contentPlaceholder: 'Student instructions…',
+          fallbackContent: '',
+        });
+      }
       const intro = block.content?.trim()
         ? `<div class="block-content block-table-intro" contenteditable="true" data-field="content" data-placeholder="Student instructions…">${block.content}</div>`
         : '';
@@ -4064,6 +4289,7 @@ function selectBlock(id) {
 function closeAllDropdowns() {
   $$('.block-dropdown.is-open, .block-size-dropdown.is-open, .block-type-dropdown.is-open').forEach((d) => {
     d.classList.remove('is-open', 'drop-up');
+    closeBlockTypePickerPanel(d);
   });
   $$('.block.is-dropdown-open').forEach((b) => b.classList.remove('is-dropdown-open'));
 }
@@ -4228,6 +4454,7 @@ function clearBlockTypeFields(block) {
   delete block.textSize;
   delete block.headingAlign;
   delete block.headingSize;
+  delete block.hotRoutineId;
 }
 
 function defaultBrainBreakCategories() {
@@ -4295,7 +4522,7 @@ function getBrainBreakEditorHTML(block) {
           <h3 class="brainbreak-category-name">${escapeHtml(cat.name)}</h3>
           <p class="brainbreak-category-hint">${escapeHtml(cat.hint)}</p>
         </header>
-        <div class="brainbreak-activities">${cat.activities.map((a) => getBrainBreakActivityCardHTML(a, { compact: true })).join('')}</div>
+        <div class="brainbreak-activities routine-panel-readable">${cat.activities.map((a) => getBrainBreakActivityCardHTML(a, { compact: true })).join('')}</div>
       </section>`
     )
     .join('');
@@ -4320,11 +4547,11 @@ function getBrainBreakPresentHTML(block) {
   const item = flat[i];
   const progress = `<p class="present-brainbreak-progress">Break ${i + 1} of ${flat.length}</p>`;
   const category = `<p class="present-brainbreak-category" style="--bb-accent:${item.accent}">${escapeHtml(item.category)}</p>`;
-  const body = `<div class="present-brainbreak-card" style="--bb-accent:${item.accent};--bb-surface:${item.surface}">
+  const body = `<div class="present-brainbreak-card routine-panel-readable" style="--bb-accent:${item.accent};--bb-surface:${item.surface}">
       <h2 class="present-brainbreak-title">${escapeHtml(item.title)}</h2>
       <p class="present-brainbreak-detail">${escapeHtml(item.detail)}</p>
     </div>`;
-  return `${progress}${category}${body}${getPresentBrainBreakRevealHintHTML(block)}`;
+  return `<div class="present-brainbreak-stack">${progress}${category}${body}${getPresentBrainBreakRevealHintHTML(block)}</div>`;
 }
 
 function ensurePresentBrainBreakState(block) {
@@ -4906,7 +5133,7 @@ function getQuizPresentHTML(block) {
         ? '<p class="present-quiz-feedback is-wrong">Not quite — see the correct answer highlighted.</p>'
         : '<p class="present-quiz-hint">Tap an answer</p>';
 
-  return `${progress}${questionHeading}${feedback}<div class="present-quiz">${options}</div>${getPresentQuizRevealHintHTML(block)}`;
+  return `<div class="present-quiz-stack">${progress}${questionHeading}${feedback}<div class="present-quiz">${options}</div>${getPresentQuizRevealHintHTML(block)}</div>`;
 }
 
 function ensurePresentQuizState(block) {
@@ -5883,13 +6110,108 @@ function applyTemplateLayout(templateId, blocks, centerId) {
 
 // --- HOT activity routines (Post → HOT activity) ---
 
+const HOT_CATEGORY_STYLES = {
+  Discussion: { accent: '#6d28d9', surface: '#ede9fe' },
+  Reflection: { accent: '#0369a1', surface: '#e0f2fe' },
+  Analysis: { accent: '#c2410c', surface: '#ffedd5' },
+  Prioritisation: { accent: '#0f766e', surface: '#ccfbf1' },
+};
+
+/** Max present: these HOT routines use 75% type scale so long copy fits on screen */
+const HOT_MAX_PRESENT_COMPACT_ROUTINE_IDS = new Set(['socratic-stems', 'soapstone']);
+
+function hotUsesCompactMaxPresent(block) {
+  return !!block?.hotRoutineId && HOT_MAX_PRESENT_COMPACT_ROUTINE_IDS.has(block.hotRoutineId);
+}
+
 function findHotRoutine(id) {
   const groups = window.PREZ_HOT_ROUTINES || [];
   for (const group of groups) {
     const routine = group.routines?.find((r) => r.id === id);
-    if (routine) return routine;
+    if (routine) {
+      const style = HOT_CATEGORY_STYLES[group.category] || HOT_CATEGORY_STYLES.Discussion;
+      return {
+        ...routine,
+        categoryName: group.category,
+        panelAccent: style.accent,
+        panelSurface: style.surface,
+      };
+    }
   }
   return null;
+}
+
+function getHotRoutinePanelVars(routine) {
+  const accent = routine?.panelAccent || HOT_CATEGORY_STYLES.Discussion.accent;
+  const surface = routine?.panelSurface || HOT_CATEGORY_STYLES.Discussion.surface;
+  return `--bb-accent:${accent};--bb-surface:${surface}`;
+}
+
+function getHotActivityEditorHTML(block, { titlePlaceholder, contentPlaceholder, fallbackContent }) {
+  const routine = findHotRoutine(block.hotRoutineId);
+  const title = escapeHtml(block.title || '');
+  const styleCls = blockUsesTextStyle(block) ? ` ${getTextCardStyleClassList(block)}` : '';
+  const categoryName = escapeHtml(routine?.categoryName || 'HOT activity');
+  const categoryHint = escapeHtml(routine?.blurb || 'Student instructions');
+  const panelStyle = getHotRoutinePanelVars(routine);
+
+  let panelBody = '';
+  if (block.type === 'table') {
+    const intro = block.content?.trim()
+      ? `<div class="block-content block-table-intro hot-routine-panel-content${styleCls}" contenteditable="true" data-field="content" data-placeholder="${contentPlaceholder}">${block.content}</div>`
+      : '';
+    panelBody = `${intro}<div class="block-table-wrap hot-routine-panel-table">${block.tableHtml || defaultTableHtml()}</div>`;
+  } else {
+    panelBody = `<div class="block-content hot-routine-panel-content${styleCls}" contenteditable="true" data-field="content" data-placeholder="${contentPlaceholder}">${block.content || fallbackContent}</div>`;
+  }
+
+  return `<input class="block-title-input${styleCls}" type="text" value="${title}" placeholder="${titlePlaceholder}" data-field="title" />
+    <p class="hot-board-note">Student instructions</p>
+    <div class="block-hot">
+      <section class="brainbreak-category hot-routine-panel" style="${panelStyle}">
+        <header class="brainbreak-category-head">
+          <h3 class="brainbreak-category-name">${categoryName}</h3>
+          <p class="brainbreak-category-hint">${categoryHint}</p>
+        </header>
+        <div class="brainbreak-activities hot-routine-panel-body routine-panel-readable">
+          ${panelBody}
+        </div>
+      </section>
+    </div>`;
+}
+
+function getHotPresentHTML(block) {
+  const routine = findHotRoutine(block.hotRoutineId);
+  const categoryName = escapeHtml(routine?.categoryName || 'HOT activity');
+  const categoryHint = escapeHtml(routine?.blurb || '');
+  const panelStyle = getHotRoutinePanelVars(routine);
+
+  let panelContent = '';
+  if (block.type === 'table') {
+    const tableHtml = applyTableColAlignsToHtml(block, block.tableHtml || defaultTableHtml());
+    const intro = block.content?.trim()
+      ? `<div class="present-body present-body--text present-table-intro present-hot-panel-intro">${block.content}</div>`
+      : '';
+    panelContent =
+      intro +
+      `<div class="present-body present-body--text present-body--table present-hot-panel-content">${tableHtml}</div>`;
+  } else if (block.type === 'list') {
+    panelContent = `<div class="present-body present-body--text present-hot-panel-content">${buildPresentListBodyHTML(block)}</div>`;
+  } else {
+    panelContent = `<div class="present-body present-body--text present-hot-panel-content">${block.content || '<p></p>'}</div>`;
+  }
+
+  return `<div class="present-hot-stack">
+      <section class="present-hot-panel brainbreak-category" style="${panelStyle}">
+        <header class="brainbreak-category-head">
+          <h3 class="brainbreak-category-name">${categoryName}</h3>
+          <p class="brainbreak-category-hint">${categoryHint}</p>
+        </header>
+        <div class="brainbreak-activities hot-routine-panel-body routine-panel-readable">
+          ${panelContent}
+        </div>
+      </section>
+    </div>`;
 }
 
 function getHotRoutineAccent() {
@@ -6280,16 +6602,9 @@ function insertHotRoutine(routineId, opts = {}) {
     title: '',
     content: '',
   };
-  const hotContent = spec.content;
-  const hotTableHtml = spec.tableHtml;
-  applyBlockTypeDefaults(block, block.type);
-  if (hotTableHtml) block.tableHtml = hotTableHtml;
-  block.title = spec.title || routine.name;
-  if (hotContent) block.content = hotContent;
-  else if (block.type === 'note' || block.type === 'heading') block.content = '<p></p>';
-  if (routine.icon) {
-    block.imageData = routine.icon;
-    block.hotRoutineId = routineId;
+  if (!applyHotRoutineToBlock(block, routineId)) {
+    if (!opts.skipToast) showToast('Routine not found');
+    return null;
   }
 
   state.blocks.push(block);
@@ -6420,18 +6735,13 @@ function insertBrainBreakActivity(activityId, opts = {}) {
     h: pos.h,
     z: maxZ + 1,
     accent,
-    title: item.title,
+    title: '',
     content: '',
-    brainBreakCategories: [
-      {
-        name: item.categoryName,
-        hint: item.hint,
-        accent: item.accent,
-        surface: item.surface,
-        activities: [{ title: item.title, detail: item.detail }],
-      },
-    ],
   };
+  if (!applyBrainBreakActivityToBlock(block, activityId)) {
+    if (!opts.skipToast) showToast('Brain break not found');
+    return null;
+  }
 
   state.blocks.push(block);
   pushBlocksClearOfHotCard(block);
@@ -6855,12 +7165,17 @@ async function renderPresent() {
   const expandBtn = `<button type="button" class="present-expand" aria-label="Expand to full screen" title="Expand to full screen" aria-pressed="false">${PRESENT_EXPAND_ICON}</button>`;
   const typeClass =
     (block.type ? ` present-card--${block.type}` : '') +
+    (block.hotRoutineId ? ' present-card--hot' : '') +
+    (hotUsesCompactMaxPresent(block) ? ' present-card--hot-compact' : '') +
     (presentCardHasInlineImage(block) ? ' present-card--has-inline-image' : '') +
     (listUsesRevealInPresent(block) ? ' present-card--list-reveal' : '') +
     (blockUsesPresentEdit(block) ? ' present-card--present-editable' : '') +
     getPresentTextCardStyleClasses(block);
   const titleAttr = block.title ? ` aria-label="${escapeAttr(block.title)}"` : '';
-  presentStage.innerHTML = `<article class="present-card${typeClass}"${titleAttr}>${expandBtn}${getPresentHTML(block, { showTitle: shouldShowPresentTitle(block) })}</article>`;
+  const hotRoutineAttr = block.hotRoutineId
+    ? ` data-hot-routine="${escapeAttr(block.hotRoutineId)}"`
+    : '';
+  presentStage.innerHTML = `<article class="present-card${typeClass}"${titleAttr}${hotRoutineAttr}>${expandBtn}${getPresentHTML(block, { showTitle: shouldShowPresentTitle(block) })}</article>`;
   applyPresentCardAccent($('.present-card', presentStage), block);
   syncPresentExpandedChrome();
   bindPresentExpand();
@@ -6922,6 +7237,9 @@ function getPresentHTML(block, { showTitle = true } = {}) {
       return `${title}${getLinkCardHTML(openUrl, { present: true })}`;
     }
     case 'table': {
+      if (block.hotRoutineId) {
+        return getPresentTitleHTML(block, { showTitle }) + getHotPresentHTML(block);
+      }
       const tableBody = getPresentTextBodyHTML(
         block,
         applyTableColAlignsToHtml(block, block.tableHtml || defaultTableHtml()),
@@ -6933,12 +7251,16 @@ function getPresentHTML(block, { showTitle = true } = {}) {
           : `<div class="present-body present-body--text present-table-intro">${block.content}</div>`
         : '';
       const body = intro + tableBody;
-      if (block.imageData && block.hotRoutineId) {
-        return wrapPresentTextCardHTML(block, body, { showTitle });
-      }
       return getPresentTitleHTML(block, { showTitle }) + body;
     }
     case 'list': {
+      if (block.hotRoutineId) {
+        return (
+          getPresentTitleHTML(block, { showTitle }) +
+          getHotPresentHTML(block) +
+          getPresentListRevealHintHTML(block)
+        );
+      }
       const body = buildPresentListBodyHTML(block);
       return (
         wrapPresentTextCardHTML(block, body, { showTitle }) + getPresentListRevealHintHTML(block)
@@ -6981,6 +7303,9 @@ function getPresentHTML(block, { showTitle = true } = {}) {
       return wrapPresentMaxTextStack(inner);
     }
     case 'note':
+      if (block.hotRoutineId) {
+        return getPresentTitleHTML(block, { showTitle }) + getHotPresentHTML(block);
+      }
       return wrapPresentTextCardHTML(block, block.content || '<p>Empty block</p>', { showTitle });
     default:
       return (
