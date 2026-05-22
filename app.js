@@ -150,6 +150,8 @@ const DEFAULTS = {
   blankDraw: null,
   timerSeconds: 300,
   mindMapCenterId: null,
+  mindMapBranchSize: 'm',
+  mindMapOrbitRadius: null,
   boardTemplate: null,
   gridWall: null,
   defaultAccent: null,
@@ -157,8 +159,15 @@ const DEFAULTS = {
   presentUseCardColour: false,
 };
 
-const MIND_MAP_BRANCH = { w: 280, h: 180, accent: 'gold' };
+const MIND_MAP_SIZES = {
+  s: { w: 268, h: 172 },
+  m: { w: 340, h: 215 },
+  l: { w: 400, h: 258 },
+};
+const MIND_MAP_BRANCH = { w: MIND_MAP_SIZES.m.w, h: MIND_MAP_SIZES.m.h, accent: 'gold' };
 const MIND_MAP_HUB = { w: 480, h: 220, accent: 'ocean' };
+/** Gap from hub edge to the anchor ring (all branch counts). */
+const MIND_MAP_RING_GAP = 18;
 const ASSESSMENT_STAGE_HEADERS = [
   'Understand the task',
   'Plan your approach',
@@ -586,6 +595,12 @@ function normalizeBoardState(data) {
   if (merged.mindMapCenterId && !ids.has(merged.mindMapCenterId)) {
     merged.mindMapCenterId = null;
   }
+  merged.mindMapBranchSize =
+    merged.mindMapBranchSize && MIND_MAP_SIZES[merged.mindMapBranchSize] ? merged.mindMapBranchSize : 'm';
+  merged.mindMapOrbitRadius =
+    typeof merged.mindMapOrbitRadius === 'number' && merged.mindMapOrbitRadius > 0
+      ? merged.mindMapOrbitRadius
+      : null;
   merged.boardTemplate = merged.boardTemplate || null;
   merged.gridWall = normalizeGridWallState(merged.gridWall);
   if (merged.gridWall && !merged.boardTemplate) {
@@ -775,6 +790,7 @@ function render() {
 
   if (isGridWallBoard()) {
     renderGridWallBoard();
+    syncMindMapSizeControls();
     return;
   }
   hideGridWallSurface();
@@ -799,6 +815,7 @@ function render() {
   });
 
   updateEmptyState();
+  syncMindMapSizeControls();
   resizeCanvasToContent();
   updateAlignToolbar();
   syncBoardTemplateBar();
@@ -856,6 +873,7 @@ function positionBlock(el, block) {
   el.style.height = block.h + 'px';
   el.style.zIndex = block.z || 1;
   applyAccentStyles(el, block.accent);
+  if (block.id === state.mindMapCenterId) syncMindMapSizeControls();
 }
 
 function createBlockElement(block) {
@@ -4785,24 +4803,321 @@ function getMindMapBranchCount() {
   return state.blocks.filter((b) => b.id !== state.mindMapCenterId).length;
 }
 
-/** Place branch cards clockwise from 12 o'clock around the hub. */
-function getMindMapPlacement(branchIndex, slotCount, centerBlock) {
-  const center = centerBlock || getMindMapCenterBlock();
-  if (!center) return null;
+/** Angle for branch index: 0 at 12 o'clock, clockwise. */
+function getMindMapBranchAngle(branchIndex, slotCount) {
+  const slots = Math.max(3, slotCount);
+  return -Math.PI / 2 + (branchIndex * 2 * Math.PI) / slots;
+}
 
+/** Branch indices closest to 12 / 3 / 6 / 9 o'clock for this slot count. */
+function getMindMapCardinalIndices(slotCount) {
+  const slots = Math.max(3, slotCount);
+  if (slots >= 4 && slots % 4 === 0) {
+    const step = slots / 4;
+    const indices = [];
+    for (let i = 0; i < slots; i += step) indices.push(i);
+    return indices;
+  }
+  if (slots === 6) return [0, 3];
+  if (slots === 7) return [0, 2, 4, 5];
+  if (slots % 2 === 0) return [0, slots / 2];
+  return [0];
+}
+
+function isMindMapCardinalSlot(branchIndex, slotCount) {
+  return getMindMapCardinalIndices(slotCount).includes(branchIndex);
+}
+
+/**
+ * Which point on the card sits on the orbit ring (hub-facing edge midpoint or inner corner).
+ */
+function getMindMapAnchorKind(angle, branchIndex, slotCount, cardW) {
+  const cw = cardW ?? MIND_MAP_BRANCH.w;
+  if (
+    slotCount === 7 &&
+    cw >= MIND_MAP_SIZES.l.w - 5 &&
+    (branchIndex === 3 || branchIndex === 4)
+  ) {
+    return 'top-center';
+  }
+  if (isMindMapCardinalSlot(branchIndex, slotCount)) {
+    const sin = Math.sin(angle);
+    const cos = Math.cos(angle);
+    if (sin < -0.5) return 'bottom-center';
+    if (sin > 0.5) return 'top-center';
+    if (cos > 0.5) return 'left-center';
+    return 'right-center';
+  }
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  if (cos > 0 && sin < 0) return 'bottom-left';
+  if (cos < 0 && sin < 0) return 'bottom-right';
+  if (cos < 0 && sin > 0) return 'top-right';
+  return 'top-left';
+}
+
+/** Offset from card top-left to the anchor point on the ring. */
+function getMindMapAnchorOffset(w, h, kind) {
+  switch (kind) {
+    case 'bottom-center':
+      return { ax: w / 2, ay: h };
+    case 'top-center':
+      return { ax: w / 2, ay: 0 };
+    case 'left-center':
+      return { ax: 0, ay: h / 2 };
+    case 'right-center':
+      return { ax: w, ay: h / 2 };
+    case 'bottom-left':
+      return { ax: 0, ay: h };
+    case 'bottom-right':
+      return { ax: w, ay: h };
+    case 'top-right':
+      return { ax: w, ay: 0 };
+    case 'top-left':
+    default:
+      return { ax: 0, ay: 0 };
+  }
+}
+
+/**
+ * Radius for this branch's anchor on its spoke (attach point still on a circle).
+ * 7/8 Large: tiered rings on the same spokes (attach point still on a circle).
+ */
+function getMindMapAnchorRadius(branchIndex, slotCount, baseRadius, w) {
+  if (w < MIND_MAP_SIZES.l.w - 5) return baseRadius;
+  if (slotCount === 7) {
+    if (branchIndex === 0) return baseRadius;
+    if (branchIndex === 2 || branchIndex === 5) return baseRadius + 24;
+    if (branchIndex === 3 || branchIndex === 4) return baseRadius + 34;
+    return baseRadius + 28;
+  }
+  if (slotCount >= 8) {
+    if (branchIndex === 0 || branchIndex === 4) return baseRadius;
+    if (branchIndex === 2 || branchIndex === 6) return baseRadius + 24;
+    return baseRadius + 40;
+  }
+  if (isMindMapCardinalSlot(branchIndex, slotCount)) return baseRadius;
+  return baseRadius;
+}
+
+function getMindMapBranchRectAtOrbit(center, branchIndex, slotCount, radius, w, h) {
   const cx = center.x + center.w / 2;
   const cy = center.y + center.h / 2;
-  const radius = Math.max(center.w, center.h) * 0.55 + 150;
-  const slots = Math.max(3, slotCount);
-  const angle = -Math.PI / 2 + (branchIndex * 2 * Math.PI) / slots;
-  const { w, h } = MIND_MAP_BRANCH;
-
+  const angle = getMindMapBranchAngle(branchIndex, slotCount);
+  const anchorR = getMindMapAnchorRadius(branchIndex, slotCount, radius, w);
+  const rx = cx + anchorR * Math.cos(angle);
+  const ry = cy + anchorR * Math.sin(angle);
+  const kind = getMindMapAnchorKind(angle, branchIndex, slotCount, w);
+  const { ax, ay } = getMindMapAnchorOffset(w, h, kind);
   return {
-    x: Math.round(cx + radius * Math.cos(angle) - w / 2),
-    y: Math.round(cy + radius * Math.sin(angle) - h / 2),
+    x: Math.round(rx - ax),
+    y: Math.round(ry - ay),
     w,
     h,
   };
+}
+
+function getMindMapSevenBottomGap(cardW) {
+  if (cardW >= MIND_MAP_SIZES.l.w - 5) return Math.max(56, Math.round(cardW * 0.16));
+  if (cardW >= MIND_MAP_SIZES.m.w - 5) return Math.max(32, Math.round(cardW * 0.1));
+  return Math.max(20, Math.round(cardW * 0.08));
+}
+
+/**
+ * 7-branch: Idea 4 & 5 as a centred pair below the hub (spokes at ~64° / ~116° are too tight).
+ */
+function layoutMindMapSevenBottomPair(center, branches, baseRadius, w, h) {
+  const idea4 = branches.find((b) => (b.branchIndex ?? 0) === 3);
+  const idea5 = branches.find((b) => (b.branchIndex ?? 0) === 4);
+  if (!idea4 || !idea5) return;
+
+  idea4.w = w;
+  idea4.h = h;
+  idea5.w = w;
+  idea5.h = h;
+
+  const hubCx = center.x + center.w / 2;
+  const hubBottom = center.y + center.h;
+  const cy = center.y + center.h / 2;
+  const anchorR = getMindMapAnchorRadius(3, 7, baseRadius, w);
+  const angle3 = getMindMapBranchAngle(3, 7);
+  const angle4 = getMindMapBranchAngle(4, 7);
+  let y = Math.round(
+    Math.max(cy + anchorR * Math.sin(angle3), cy + anchorR * Math.sin(angle4))
+  );
+  const gapBelowHub = Math.max(16, Math.round(h * 0.07));
+  y = Math.round(Math.max(y, hubBottom + gapBelowHub));
+
+  const gap = getMindMapSevenBottomGap(w);
+  const totalW = idea5.w + gap + idea4.w;
+  idea5.x = Math.round(hubCx - totalW / 2);
+  idea4.x = idea5.x + idea5.w + gap;
+  idea5.y = y;
+  idea4.y = y;
+}
+
+function mindMapFitsViewport(center, branches, radius, vw, vh, pad, tier) {
+  const slots = Math.max(3, branches.length);
+  const tierSize = tier && MIND_MAP_SIZES[tier] ? MIND_MAP_SIZES[tier] : null;
+  let minX = center.x;
+  let minY = center.y;
+  let maxX = center.x + center.w;
+  let maxY = center.y + center.h;
+  for (let i = 0; i < slots; i++) {
+    const branch = branches.find((b) => (b.branchIndex ?? 0) === i);
+    const w = tierSize?.w ?? branch?.w ?? MIND_MAP_BRANCH.w;
+    const h = tierSize?.h ?? branch?.h ?? MIND_MAP_BRANCH.h;
+    const rect = getMindMapBranchRectAtOrbit(center, i, slots, radius, w, h);
+    minX = Math.min(minX, rect.x);
+    minY = Math.min(minY, rect.y);
+    maxX = Math.max(maxX, rect.x + rect.w);
+    maxY = Math.max(maxY, rect.y + rect.h);
+  }
+  return minX >= pad && minY >= pad && maxX <= vw - pad && maxY <= vh - pad;
+}
+
+function mindMapLayoutFits(center, branches, slots, radius, vw, vh, pad, tier, w, h) {
+  return (
+    mindMapFitsViewport(center, branches, radius, vw, vh, pad, tier) &&
+    !mindMapAdjacentBranchesOverlap(center, slots, radius, w, h)
+  );
+}
+
+/** Branch reach for ring sizing — use L so S/M/L never pull the ring in/out. */
+function getMindMapBranchReachForRing() {
+  const l = MIND_MAP_SIZES.l;
+  return Math.hypot(l.w, l.h) * 0.55;
+}
+
+function getMindMapRingGap(slotCount, tier) {
+  const slots = Math.max(3, slotCount);
+  let gap = MIND_MAP_RING_GAP + (slots >= 8 ? 10 : slots >= 6 ? 4 : 0);
+  if (slots === 7) gap += 10;
+  if (slots === 7 && tier === 'l') gap += 14;
+  if (slots >= 8 && tier === 'l') gap += 28;
+  else if (slots >= 8 && tier === 'm') gap += 12;
+  return gap;
+}
+
+function mindMapSpacingMargin(slots, cardW) {
+  const isLarge = cardW >= MIND_MAP_SIZES.l.w - 5;
+  if (isLarge && (slots === 7 || slots >= 8)) return 18;
+  return 10;
+}
+
+function mindMapRectsOverlap(a, b, margin = 10) {
+  return !(
+    a.x + a.w + margin <= b.x ||
+    b.x + b.w + margin <= a.x ||
+    a.y + a.h + margin <= b.y ||
+    b.y + b.h + margin <= a.y
+  );
+}
+
+function mindMapAdjacentBranchesOverlap(center, slots, radius, w, h) {
+  const margin = mindMapSpacingMargin(slots, w);
+  const rects = [];
+  for (let i = 0; i < slots; i++) {
+    rects.push(getMindMapBranchRectAtOrbit(center, i, slots, radius, w, h));
+  }
+  for (let i = 0; i < slots; i++) {
+    const j = (i + 1) % slots;
+    if (mindMapRectsOverlap(rects[i], rects[j], margin)) return true;
+  }
+  return false;
+}
+
+/** Widen the ring until neighbouring idea cards no longer overlap. */
+function expandMindMapOrbitForSpacing(center, branches, slots, radius, w, h, placeAll) {
+  const margin = mindMapSpacingMargin(slots, w);
+  let guard = 0;
+  while (guard++ < 40 && mindMapAdjacentBranchesOverlap(center, slots, radius, w, h)) {
+    radius += margin >= 18 ? 10 : 12;
+    placeAll(radius);
+  }
+  return radius;
+}
+
+/** Recover ring radius from a placed branch anchor (e.g. after load). */
+function inferMindMapOrbitRadius(center, branches) {
+  const slots = Math.max(3, branches.length);
+  const sample = branches.find((b) => (b.branchIndex ?? 0) === 0) || branches[0];
+  if (!sample) return null;
+  const cx = center.x + center.w / 2;
+  const cy = center.y + center.h / 2;
+  const idx = sample.branchIndex ?? 0;
+  const angle = getMindMapBranchAngle(idx, slots);
+  const kind = getMindMapAnchorKind(angle, idx, slots, sample.w);
+  const { ax, ay } = getMindMapAnchorOffset(sample.w, sample.h, kind);
+  const dist = Math.hypot(sample.x + ax - cx, sample.y + ay - cy);
+  return dist > 0 ? dist : null;
+}
+
+/** Smallest ring that keeps branch anchors outside the hub. */
+function getMindMapMinOrbitRadius(center) {
+  return Math.max(center.w, center.h) * 0.48 + 20;
+}
+
+/** Shrink the ring until the layout fits the viewport at the given card size. */
+function shrinkMindMapOrbitToViewport(center, branches, slots, radius, size, placeAll, fitTier) {
+  const { vw, vh, pad } = getViewportLayoutMetrics();
+  const floor = getMindMapMinOrbitRadius(center);
+  const tier = fitTier || 'm';
+  while (
+    radius > floor &&
+    !mindMapLayoutFits(center, branches, slots, radius, vw, vh, pad, tier, size.w, size.h)
+  ) {
+    radius -= 8;
+    branches.forEach((branch) => {
+      const idx = branch.branchIndex ?? 0;
+      placeMindMapBranchOnOrbit(center, branch, idx, slots, radius, size.w, size.h);
+    });
+  }
+  return radius;
+}
+
+/** Orbit radius: one ring around the hub for every branch count. */
+function getMindMapOrbitRadius(center, branches, { fitViewport = false, fitTier = 'm' } = {}) {
+  const hubReach = Math.max(center.w, center.h) * 0.48;
+  const branchReach = getMindMapBranchReachForRing();
+  const slots = Math.max(3, branches.length);
+  const ringGap = getMindMapRingGap(slots, fitTier);
+  let radius = hubReach + branchReach + ringGap;
+  if (fitViewport) {
+    const { vw, vh, pad } = getViewportLayoutMetrics();
+    const floor = getMindMapMinOrbitRadius(center);
+    const w = MIND_MAP_SIZES[fitTier]?.w ?? MIND_MAP_BRANCH.w;
+    const h = MIND_MAP_SIZES[fitTier]?.h ?? MIND_MAP_BRANCH.h;
+    while (
+      radius > floor &&
+      !mindMapLayoutFits(center, branches, slots, radius, vw, vh, pad, fitTier, w, h)
+    ) {
+      radius -= 8;
+    }
+  }
+  return radius;
+}
+
+/** Place one branch: anchor point on the ring, card grows outward. */
+function placeMindMapBranchOnOrbit(center, branch, branchIndex, slotCount, radius, w, h) {
+  const rect = getMindMapBranchRectAtOrbit(center, branchIndex, slotCount, radius, w, h);
+  branch.x = rect.x;
+  branch.y = rect.y;
+  branch.w = rect.w;
+  branch.h = rect.h;
+}
+
+/** Place branch cards clockwise from 12 o'clock (anchor on ring). */
+function getMindMapPlacement(branchIndex, slotCount, centerBlock, branchDims, orbitRadius) {
+  const center = centerBlock || getMindMapCenterBlock();
+  if (!center) return null;
+
+  const slots = Math.max(3, slotCount);
+  const radius =
+    orbitRadius ?? Math.max(center.w, center.h) * 0.55 + 150;
+  const w = branchDims?.w ?? MIND_MAP_BRANCH.w;
+  const h = branchDims?.h ?? MIND_MAP_BRANCH.h;
+  return getMindMapBranchRectAtOrbit(center, branchIndex, slots, radius, w, h);
 }
 
 function centerMindMapHub(blocks, centerId) {
@@ -4816,23 +5131,253 @@ function centerMindMapHub(blocks, centerId) {
   center.y = Math.round(Math.max(pad, (vh - center.h) / 2));
 }
 
-function positionMindMapBranches(blocks, centerId) {
+function mindMapBranchOverlapsHub(branch, center) {
+  return !(
+    branch.x + branch.w <= center.x ||
+    branch.x >= center.x + center.w ||
+    branch.y + branch.h <= center.y ||
+    branch.y >= center.y + center.h
+  );
+}
+
+/** Bounding box of hub + all branch cards. */
+function getMindMapGroupBounds(center, branches) {
+  let minX = center.x;
+  let minY = center.y;
+  let maxX = center.x + center.w;
+  let maxY = center.y + center.h;
+  branches.forEach((b) => {
+    minX = Math.min(minX, b.x);
+    minY = Math.min(minY, b.y);
+    maxX = Math.max(maxX, b.x + b.w);
+    maxY = Math.max(maxY, b.y + b.h);
+  });
+  return { minX, minY, maxX, maxY, boxW: maxX - minX, boxH: maxY - minY };
+}
+
+function shiftMindMapGroup(center, branches, dx, dy) {
+  if (!dx && !dy) return;
+  center.x = Math.round(center.x + dx);
+  center.y = Math.round(center.y + dy);
+  branches.forEach((b) => {
+    b.x = Math.round(b.x + dx);
+    b.y = Math.round(b.y + dy);
+  });
+}
+
+/** Nudge only when clipped — used after S/M/L so the ring does not jump. */
+function clampMindMapGroupToViewport(center, branches) {
+  const { vw, vh, pad } = getViewportLayoutMetrics();
+  const { minX, minY, maxX, maxY, boxH } = getMindMapGroupBounds(center, branches);
+  const innerH = vh - pad * 2;
+  let dx = 0;
+  let dy = 0;
+  if (minX < pad) dx = pad - minX;
+  else if (maxX > vw - pad) dx = vw - pad - maxX;
+  if (boxH <= innerH) {
+    if (minY < pad) dy = pad - minY;
+    else if (maxY > vh - pad) dy = vh - pad - maxY;
+  } else if (minY < pad) {
+    dy = pad - minY;
+  }
+  shiftMindMapGroup(center, branches, dx, dy);
+}
+
+/** Layout all branches on one ring; anchor on circle, same rules for 3–8 branches. */
+function layoutMindMapBranches(center, branches, { fitViewport = false, tier = null, resizeOnly = false } = {}) {
+  if (!center || !branches.length) return;
+  const slots = Math.max(3, branches.length);
+  const sizeKey = tier || state.mindMapBranchSize || 'm';
+  const size = MIND_MAP_SIZES[sizeKey] || MIND_MAP_SIZES.m;
+
+  let radius;
+  if (resizeOnly) {
+    radius =
+      state.mindMapOrbitRadius ||
+      inferMindMapOrbitRadius(center, branches) ||
+      getMindMapOrbitRadius(center, branches, {});
+  } else {
+    radius = getMindMapOrbitRadius(center, branches, { fitViewport, fitTier: sizeKey });
+  }
+
+  const placeAll = (r) => {
+    branches.forEach((branch) => {
+      const idx = branch.branchIndex ?? 0;
+      if (slots === 7 && (idx === 3 || idx === 4)) return;
+      placeMindMapBranchOnOrbit(center, branch, idx, slots, r, size.w, size.h);
+      if (!branch.accent) branch.accent = MIND_MAP_BRANCH.accent;
+    });
+    if (slots === 7) {
+      layoutMindMapSevenBottomPair(center, branches, r, size.w, size.h);
+    }
+  };
+
+  placeAll(radius);
+  let guard = 0;
+  while (guard++ < 30 && branches.some((b) => mindMapBranchOverlapsHub(b, center))) {
+    radius += 10;
+    placeAll(radius);
+  }
+
+  radius = expandMindMapOrbitForSpacing(center, branches, slots, radius, size.w, size.h, placeAll);
+
+  if (!resizeOnly) {
+    radius = shrinkMindMapOrbitToViewport(
+      center,
+      branches,
+      slots,
+      radius,
+      size,
+      placeAll,
+      sizeKey
+    );
+  } else {
+    const { vw, vh, pad } = getViewportLayoutMetrics();
+    if (
+      !mindMapLayoutFits(center, branches, slots, radius, vw, vh, pad, sizeKey, size.w, size.h)
+    ) {
+      radius = shrinkMindMapOrbitToViewport(
+        center,
+        branches,
+        slots,
+        radius,
+        size,
+        placeAll,
+        sizeKey
+      );
+    }
+  }
+
+  if (slots === 7) {
+    layoutMindMapSevenBottomPair(center, branches, radius, size.w, size.h);
+  }
+
+  clampMindMapGroupToViewport(center, branches);
+
+  state.mindMapOrbitRadius = radius;
+}
+
+function positionMindMapBranches(blocks, centerId, { fitViewport = false } = {}) {
   const center = blocks.find((b) => b.id === centerId);
   if (!center) return;
-
   const branches = blocks
     .filter((b) => b.id !== centerId)
     .sort((a, b) => (a.branchIndex ?? 0) - (b.branchIndex ?? 0));
-  const slots = Math.max(3, branches.length);
+  layoutMindMapBranches(center, branches, { fitViewport });
+}
 
-  branches.forEach((branch, i) => {
-    const place = getMindMapPlacement(i, slots, center);
-    if (!place) return;
-    branch.x = place.x;
-    branch.y = place.y;
-    branch.w = place.w;
-    branch.h = place.h;
-    if (!branch.accent) branch.accent = MIND_MAP_BRANCH.accent;
+function isMindMapBoard() {
+  return state.boardTemplate === 'mind-map' && !!state.mindMapCenterId;
+}
+
+function nudgeMindMapIntoView(blocks, centerId) {
+  const { vw, vh } = getViewportLayoutMetrics();
+  const pad = 48;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = 0;
+  let maxY = 0;
+  blocks.forEach((b) => {
+    minX = Math.min(minX, b.x);
+    minY = Math.min(minY, b.y);
+    maxX = Math.max(maxX, b.x + b.w);
+    maxY = Math.max(maxY, b.y + b.h);
+  });
+  if (!Number.isFinite(minX)) return;
+
+  let dx = 0;
+  let dy = 0;
+  if (minY < pad) dy = pad - minY;
+  if (maxY + dy > vh - pad) dy -= maxY + dy - (vh - pad);
+  if (minX < pad) dx = pad - minX;
+  if (maxX + dx > vw - pad) dx -= maxX + dx - (vw - pad);
+  if (!dx && !dy) return;
+  blocks.forEach((b) => {
+    if (centerId && b.id === centerId) return;
+    b.x = Math.round(b.x + dx);
+    b.y = Math.round(b.y + dy);
+  });
+}
+
+function getMindMapBranches() {
+  if (!state.mindMapCenterId) return [];
+  return state.blocks
+    .filter((b) => b.id !== state.mindMapCenterId)
+    .sort((a, b) => (a.branchIndex ?? 0) - (b.branchIndex ?? 0));
+}
+
+function applyMindMapBranchSizeTier(tier) {
+  if (!isMindMapBoard()) return;
+  const size = MIND_MAP_SIZES[tier];
+  if (!size) return;
+  const center = getMindMapCenterBlock();
+  if (!center) return;
+  const branches = getMindMapBranches();
+  if (!branches.length) return;
+  if (state.mindMapBranchSize === tier) return;
+
+  pushLayoutUndo();
+  state.mindMapBranchSize = tier;
+  layoutMindMapBranches(center, branches, { tier, resizeOnly: true });
+  resizeCanvasToContent();
+  render();
+  persist();
+  showToast(`Idea cards: ${tier.toUpperCase()}`);
+}
+
+function ensureMindMapSizeControls() {
+  let wrap = $('#mindMapSizeControls');
+  if (!wrap) {
+    wrap = document.createElement('div');
+    wrap.id = 'mindMapSizeControls';
+    wrap.className = 'mind-map-size-controls';
+    wrap.setAttribute('role', 'group');
+    wrap.setAttribute('aria-label', 'Idea card size');
+    wrap.innerHTML = ['s', 'm', 'l']
+      .map(
+        (tier) =>
+          `<button type="button" class="mind-map-size-btn" data-mind-map-tier="${tier}" title="Idea cards ${tier.toUpperCase()}" aria-label="Idea card size ${tier.toUpperCase()}">${tier.toUpperCase()}</button>`
+      )
+      .join('');
+    wrap.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-mind-map-tier]');
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      applyMindMapBranchSizeTier(btn.dataset.mindMapTier);
+    });
+    wrap.addEventListener('pointerdown', (e) => e.stopPropagation());
+    canvasInner.appendChild(wrap);
+  }
+  return wrap;
+}
+
+function syncMindMapSizeControls() {
+  const wrap = ensureMindMapSizeControls();
+  if (!isMindMapBoard()) {
+    wrap.hidden = true;
+    wrap.setAttribute('hidden', '');
+    return;
+  }
+  const center = getMindMapCenterBlock();
+  if (!center) {
+    wrap.hidden = true;
+    wrap.setAttribute('hidden', '');
+    return;
+  }
+  wrap.hidden = false;
+  wrap.removeAttribute('hidden');
+  const hubEl = $(`[data-block-id="${center.id}"]`, canvasInner);
+  if (hubEl) hubEl.insertAdjacentElement('afterend', wrap);
+
+  const hubZ = center.z || 1;
+  wrap.style.zIndex = String(hubZ + 100);
+  wrap.style.left = `${center.x + center.w / 2}px`;
+  wrap.style.top = `${center.y + center.h + 8}px`;
+
+  const tier = state.mindMapBranchSize || 'm';
+  wrap.querySelectorAll('[data-mind-map-tier]').forEach((btn) => {
+    btn.classList.toggle('is-active', btn.dataset.mindMapTier === tier);
   });
 }
 
@@ -4845,7 +5390,10 @@ function layoutMindMapBlocks(blocks, centerId) {
     center.h = center.h || MIND_MAP_HUB.h;
   }
   centerMindMapHub(blocks, centerId);
-  positionMindMapBranches(blocks, centerId);
+  const branches = blocks
+    .filter((b) => b.id !== centerId)
+    .sort((a, b) => (a.branchIndex ?? 0) - (b.branchIndex ?? 0));
+  layoutMindMapBranches(center, branches, { fitViewport: true, tier: 'm' });
 }
 
 function pickGalleryGridDimensions(n) {
@@ -5643,37 +6191,38 @@ function addBlock(type, opts = {}) {
   applyBlockTypeDefaults(block, type);
 
   if (state.mindMapCenterId && block.id !== state.mindMapCenterId) {
-    const branchIndex = getMindMapBranchCount();
     const center = getMindMapCenterBlock();
-    const place = getMindMapPlacement(
-      branchIndex,
-      Math.max(3, getMindMapBranchCount() + 1),
-      center
-    );
-    if (place) {
-      block.x = place.x;
-      block.y = place.y;
-      block.w = place.w;
-      block.h = place.h;
-      block.accent = MIND_MAP_BRANCH.accent;
-    } else {
-      const pos = getHotCardPosition(null, block.w, block.h);
-      block.x = pos.x;
-      block.y = pos.y;
+    const size = MIND_MAP_SIZES[state.mindMapBranchSize || 'm'] || MIND_MAP_SIZES.m;
+    block.branchIndex = getMindMapBranchCount();
+    block.w = size.w;
+    block.h = size.h;
+    block.accent = MIND_MAP_BRANCH.accent;
+    state.blocks.push(block);
+    addToPresentOrder(block.id);
+    if (center) {
+      state.mindMapOrbitRadius = null;
+      const branches = state.blocks
+        .filter((b) => b.id !== state.mindMapCenterId)
+        .sort((a, b) => (a.branchIndex ?? 0) - (b.branchIndex ?? 0));
+      layoutMindMapBranches(center, branches);
     }
+    selectedId = block.id;
+    if (!opts.skipRender) render();
+    if (!opts.skipFocus) focusBlockAfterTypeChange(block, type);
+    if (!opts.skipToast) showToast('Block added');
+    return block.id;
   } else {
     const pos = getHotCardPosition(null, block.w, block.h);
     block.x = pos.x;
     block.y = pos.y;
+    state.blocks.push(block);
+    addToPresentOrder(block.id);
+    selectedId = block.id;
+    if (!opts.skipRender) render();
+    if (!opts.skipFocus) focusBlockAfterTypeChange(block, type);
+    if (!opts.skipToast) showToast('Block added');
+    return block.id;
   }
-
-  state.blocks.push(block);
-  addToPresentOrder(block.id);
-  selectedId = block.id;
-  if (!opts.skipRender) render();
-  if (!opts.skipFocus) focusBlockAfterTypeChange(block, type);
-  if (!opts.skipToast) showToast('Block added');
-  return block.id;
 }
 
 function duplicateBlock(block) {
@@ -7537,7 +8086,7 @@ function bindGridWallCellInputs() {
 
 function getGridWallCellHTML(cell, index) {
   return `<div class="grid-wall-cell" data-cell-index="${index}">
-    <input type="text" class="grid-wall-cell-title" value="${escapeAttr(cell.title)}" placeholder="Section title" data-grid-title="${index}" />
+    <textarea class="grid-wall-cell-title" rows="2" placeholder="Section title" data-grid-title="${index}">${escapeHtml(cell.title)}</textarea>
     <div class="grid-wall-cell-body" contenteditable="true" data-grid-body="${index}">${cell.content || '<ul><li></li><li></li><li></li></ul>'}</div>
   </div>`;
 }
@@ -7593,6 +8142,7 @@ function applyGridWallTemplate(templateId, options = {}) {
     blankDraw: null,
     timerSeconds: 300,
     mindMapCenterId: null,
+    mindMapOrbitRadius: null,
     boardTemplate: templateId,
     gridWall,
   });
@@ -7711,6 +8261,8 @@ function applyBoardTemplate(templateId, options = {}) {
     blankDraw: null,
     timerSeconds: 300,
     mindMapCenterId: centerBlock && isMindMap ? centerBlock.id : null,
+    mindMapBranchSize: 'm',
+    mindMapOrbitRadius: null,
     boardTemplate: isMindMap ? 'mind-map' : templateId,
   });
 
@@ -7900,10 +8452,10 @@ function initGridWallUI() {
   $('#btnGridWallPdf')?.addEventListener('click', exportGridWallPdf);
 }
 
-function createTemplateCard(tpl, { large = false } = {}) {
+function createTemplateCard(tpl) {
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.className = 'template-card' + (large ? ' template-card--featured' : '');
+  btn.className = 'template-card';
   btn.dataset.templateId = tpl.id;
   const tagHtml = tpl.tag ? `<span class="template-card-tag">${escapeHtml(tpl.tag)}</span>` : '';
   btn.innerHTML = `${tagHtml}<span class="template-card-name">${escapeHtml(tpl.name)}</span><span class="template-card-desc">${escapeHtml(tpl.description || '')}</span><span class="template-card-cta">Use template</span>`;
@@ -7928,7 +8480,7 @@ function buildTemplatesGallery() {
   if (featured.length) {
     featuredEl.hidden = false;
     featuredEl.removeAttribute('hidden');
-    featured.forEach((tpl) => featuredEl.appendChild(createTemplateCard(tpl, { large: true })));
+    featured.forEach((tpl) => featuredEl.appendChild(createTemplateCard(tpl)));
   } else {
     featuredEl.hidden = true;
     featuredEl.setAttribute('hidden', '');
@@ -8007,6 +8559,7 @@ function newBoard() {
     blankDraw: null,
     timerSeconds: 300,
     mindMapCenterId: null,
+    mindMapOrbitRadius: null,
     boardTemplate: null,
     gridWall: null,
     defaultAccent: null,
@@ -8040,6 +8593,8 @@ function buildBoardExportJson() {
     blankDraw: state.blankDraw,
     timerSeconds: state.timerSeconds,
     mindMapCenterId: state.mindMapCenterId || null,
+    mindMapBranchSize: state.mindMapBranchSize || 'm',
+    mindMapOrbitRadius: state.mindMapOrbitRadius || null,
     boardTemplate: state.boardTemplate || null,
     gridWall: state.gridWall || null,
     defaultAccent: state.defaultAccent || null,
@@ -8156,6 +8711,11 @@ function importBoard(file) {
         blankDraw: data.blankDraw,
         timerSeconds: data.timerSeconds,
         mindMapCenterId: data.mindMapCenterId || null,
+        mindMapBranchSize: data.mindMapBranchSize || 'm',
+        mindMapOrbitRadius:
+          typeof data.mindMapOrbitRadius === 'number' && data.mindMapOrbitRadius > 0
+            ? data.mindMapOrbitRadius
+            : null,
         boardTemplate: data.boardTemplate || null,
         gridWall: data.gridWall || null,
         defaultAccent: data.defaultAccent || null,

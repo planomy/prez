@@ -145,7 +145,7 @@
       min-height: 0;
     }
     .print-cell h2 {
-      font-size: 42pt;
+      font-size: calc(42pt - 2pt);
       margin: 0 0 8px;
       text-transform: uppercase;
       letter-spacing: 0.04em;

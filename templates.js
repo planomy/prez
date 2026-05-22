@@ -4,6 +4,8 @@
 (function () {
   const BG_ACADEMIC = 'linear-gradient(160deg, #1e3a5f 0%, #2563eb 40%, #93c5fd 100%)';
   const BG_PAPER = 'linear-gradient(180deg, #f7f5f0 0%, #e8e4dc 100%)';
+  /** Same as app.js DEFAULTS.background (civics) — home / new board look */
+  const BG_HOME = 'linear-gradient(160deg, #234e70 0%, #fb8500 55%, #ffb703 100%)';
   const BG_TWILIGHT = 'linear-gradient(180deg, #312e81 0%, #be185d 50%, #f97316 100%)';
   const BG_FOREST = 'linear-gradient(135deg, #134e4a 0%, #065f46 50%, #047857 100%)';
   const BG_STEM_MATH = 'linear-gradient(160deg, #0c4a6e 0%, #0369a1 42%, #7dd3fc 100%)';
@@ -84,8 +86,8 @@
         branchIndex: i,
         title: `Idea ${i + 1}`,
         content: note(i === 0 ? 'First branch — add your thought here' : `Idea ${i + 1}`),
-        w: 280,
-        h: 180,
+        w: 340,
+        h: 215,
       });
     }
     return specs;
@@ -104,7 +106,7 @@
     'mind-map': (opts) => ({
       board: {
         title: 'Mind map',
-        background: BG_PAPER,
+        background: BG_HOME,
         layoutMode: null,
         mindMap: true,
       },
