@@ -3423,6 +3423,33 @@ body.table-col-resize-active .blank-table-wrap {
   height: auto;
 }
 
+/* Mammoth keeps Word column widths as inline styles; reflow in wide / fullscreen views */
+.gallery-viewer-docx .docx-preview-content,
+.present-overlay.present-expanded .present-doc-docx .docx-preview-content {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.gallery-viewer-docx .docx-preview-content table,
+.present-overlay.present-expanded .present-doc-docx .docx-preview-content table {
+  width: 100% !important;
+  table-layout: auto;
+}
+
+.gallery-viewer-docx .docx-preview-content col,
+.gallery-viewer-docx .docx-preview-content td,
+.gallery-viewer-docx .docx-preview-content th,
+.present-overlay.present-expanded .present-doc-docx .docx-preview-content col,
+.present-overlay.present-expanded .present-doc-docx .docx-preview-content td,
+.present-overlay.present-expanded .present-doc-docx .docx-preview-content th {
+  width: auto !important;
+  min-width: 3em;
+  word-break: normal;
+  overflow-wrap: break-word;
+  white-space: normal;
+}
+
 .type-label {
   font-size: 0.7rem;
   font-weight: 600;
@@ -4125,6 +4152,8 @@ body.table-col-resize-active .blank-table-wrap {
 .present-stage--expanded .present-doc-docx {
   flex: 1;
   min-height: 0;
+  min-width: 0;
+  width: 100%;
   max-height: none;
   border-radius: 6px;
 }

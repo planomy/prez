@@ -5,48 +5,48 @@
   const DEFAULT_LIST = '<ul><li></li><li></li><li></li></ul>';
 
   const TASK_TITLES_6 = [
-    'Task in your own words',
-    'Success criteria',
-    'What I\'m unsure about',
-    'My plan / steps',
-    'Evidence I need',
-    'Check before I submit',
+    'TASK REQUIREMENTS',
+    'SUCCESS CRITERIA',
+    'GAPS & UNCERTAINTIES',
+    'PLAN / STEPS',
+    'REQUIRED EVIDENCE',
+    'PRE-SUBMISSION CHECKLIST',
   ];
 
   const TASK_TITLES_8 = [
     ...TASK_TITLES_6,
-    'Due dates & checkpoints',
-    'Questions for my teacher',
+    'DUE DATES & CHECKPOINTS',
+    'QUESTIONS',
   ];
 
   const FEEDBACK_DRAFTS_6 = [
-    'Common issues in drafts',
-    'Fixes to try before resubmit',
-    'Strong example from drafts',
-    'What\'s still unclear',
-    'Your next step',
-    'Success criteria reminder',
+    'COMMON DRAFT ISSUES',
+    'FIXES BEFORE RESUBMIT',
+    'STRONG EXEMPLAR',
+    'REMAINING GAPS',
+    'NEXT STEPS',
+    'SUCCESS CRITERIA REMINDER',
   ];
 
   const FEEDBACK_DRAFTS_8 = [
     ...FEEDBACK_DRAFTS_6,
-    'Praise — what many did well',
-    'Watch for next time',
+    'PRAISE - WHAT WENT WELL',
+    'WATCH FOR NEXT TIME',
   ];
 
   const FEEDBACK_FINAL_6 = [
-    'What went well',
-    'What to improve',
-    'Exemplar',
-    'Patterns / stats',
-    'Your next action',
-    'Remember for next time',
+    'PRAISE - WHAT WENT WELL',
+    'AREAS TO IMPROVE',
+    'STRONG EXEMPLAR',
+    'PATTERNS / STATS',
+    'NEXT ACTIONS',
+    'REMEMBER FOR NEXT TIME',
   ];
 
   const FEEDBACK_FINAL_8 = [
     ...FEEDBACK_FINAL_6,
-    'Criteria to revisit',
-    'Questions still open',
+    'CRITERIA TO REVISIT',
+    'OPEN QUESTIONS',
   ];
 
   window.PREZ_GRID_WALL = {

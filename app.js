@@ -2052,58 +2052,59 @@ function syncBlockFooter(el, block) {
   const primary = [];
   const secondary = [];
 
-  if (block.type === 'image' && block.imageData) {
-    primary.push(getImageReplaceFooterHTML());
-  }
-  if (blockAcceptsInlineImage(block)) {
-    primary.push(getNoteListImageFooterHTML(block));
-  }
-  if (block.type === 'document' && block.docData) {
-    primary.push(getDocumentFooterActionsHTML(block));
-  }
-  if (block.type === 'whiteboard') {
-    primary.push(
-      '<button type="button" class="block-footer-btn" data-action="open-whiteboard">Open whiteboard</button>'
-    );
-  }
-  if (blockUsesTextStyle(block)) {
-    primary.push(getTextCardStyleFooterHTML(block));
-  }
-  if (block.type === 'list') {
-    primary.push(getListRevealFooterHTML(block));
-  }
-  if (block.type === 'table') {
-    primary.push(getTableColAlignFooterHTML(block));
-  }
-  if (block.type === 'worldmap') {
-    primary.push(
-      '<label class="block-footer-btn block-footer-btn-replace" title="Replace map image">Replace map<input type="file" accept="image/*" data-field="image" hidden /></label>'
-    );
-    if (getWorldMapMapSrc(block)) {
-      primary.push(
-        '<button type="button" class="block-footer-btn" data-action="reset-map-image">Default map</button>'
-      );
-    }
-    primary.push(getMapRevealFooterHTML(block));
-  }
   if (block.galleryStation) {
     if (galleryStationHasMedia(block)) {
       primary.push(
         '<button type="button" class="block-footer-btn" data-action="gallery-view">View full screen</button>'
       );
     }
-    if (block.type === 'image') {
+    if (block.type === 'document' && block.docData) {
+      primary.push(getDocumentFooterActionsHTML(block));
+      primary.push(
+        `<label class="block-footer-btn">Add image<input type="file" accept="image/*" data-field="gallery-image-replace" hidden /></label>`
+      );
+    } else {
       primary.push(
         `<label class="block-footer-btn">${galleryStationHasMedia(block) ? 'Replace image' : 'Add image'}<input type="file" accept="image/*" data-field="image" hidden /></label>`
       );
       primary.push(
         `<label class="block-footer-btn">Add PDF / document<input type="file" accept="${GALLERY_DOC_ACCEPT}" data-field="gallery-document" hidden /></label>`
       );
-    } else if (block.type === 'document') {
+    }
+  } else {
+    if (block.type === 'image' && block.imageData) {
+      primary.push(getImageReplaceFooterHTML());
+    }
+    if (blockAcceptsInlineImage(block)) {
+      primary.push(getNoteListImageFooterHTML(block));
+    }
+    if (block.type === 'document' && block.docData) {
       primary.push(getDocumentFooterActionsHTML(block));
+    }
+    if (block.type === 'whiteboard') {
       primary.push(
-        `<label class="block-footer-btn">Add image<input type="file" accept="image/*" data-field="gallery-image-replace" hidden /></label>`
+        '<button type="button" class="block-footer-btn" data-action="open-whiteboard">Open whiteboard</button>'
       );
+    }
+    if (blockUsesTextStyle(block)) {
+      primary.push(getTextCardStyleFooterHTML(block));
+    }
+    if (block.type === 'list') {
+      primary.push(getListRevealFooterHTML(block));
+    }
+    if (block.type === 'table') {
+      primary.push(getTableColAlignFooterHTML(block));
+    }
+    if (block.type === 'worldmap') {
+      primary.push(
+        '<label class="block-footer-btn block-footer-btn-replace" title="Replace map image">Replace map<input type="file" accept="image/*" data-field="image" hidden /></label>'
+      );
+      if (getWorldMapMapSrc(block)) {
+        primary.push(
+          '<button type="button" class="block-footer-btn" data-action="reset-map-image">Default map</button>'
+        );
+      }
+      primary.push(getMapRevealFooterHTML(block));
     }
   }
 
@@ -5571,7 +5572,7 @@ async function openGalleryViewer(blockId) {
     } else if (isDocxDocument(block)) {
       if (!block.docPreviewHtml) await ensureDocxPreview(block);
       if (block.docPreviewHtml) {
-        stage.innerHTML = `<div class="gallery-viewer-docx">${block.docPreviewHtml}</div>`;
+        stage.innerHTML = `<div class="gallery-viewer-docx"><div class="docx-preview-content">${block.docPreviewHtml}</div></div>`;
       } else {
         stage.innerHTML = `<div class="gallery-viewer-doc-card"><p>Preview unavailable — open the file from the card footer.</p></div>`;
       }
