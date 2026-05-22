@@ -3679,8 +3679,45 @@ body.table-col-resize-active .blank-table-wrap {
     .present-card--note,
     .present-card--list
   ) {
-  padding: 20px 24px 18px;
+  padding: 28px 40px 24px;
+  justify-content: center;
+  align-items: stretch;
+}
+
+/* Max present: vertically centre short text; top-align when content overflows */
+.present-overlay.present-expanded .present-max-text {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.present-overlay.present-expanded .present-max-text .present-body--text {
+  flex: 0 1 auto;
+  min-height: 0;
+}
+
+.present-overlay.present-expanded .present-max-text.present-max-text--top {
+  flex: 1 1 auto;
   justify-content: flex-start;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.present-overlay.present-expanded .present-card--heading .present-max-text {
+  justify-content: center;
+}
+
+.present-overlay.present-expanded .present-card--heading .present-max-text.present-max-text--scroll {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.present-overlay.present-expanded .present-card--heading .present-max-text.present-max-text--scroll .present-body--text {
+  overflow-y: auto;
 }
 
 /* Max present: hide titles on media/embed cards; keep on text cards (heading, note, list) */

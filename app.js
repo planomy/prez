@@ -1808,12 +1808,22 @@ function getPresentTextBodyHTML(block, bodyHTML, extraClass = '') {
   return `<div class="${cls}">${bodyHTML}</div>`;
 }
 
+function shouldMaxCenterPresentText(block) {
+  return !!block && ['heading', 'note', 'list'].includes(block.type);
+}
+
+function wrapPresentMaxTextStack(innerHTML) {
+  return `<div class="present-max-text">${innerHTML}</div>`;
+}
+
 function wrapPresentTextCardHTML(block, bodyHTML, { showTitle = true } = {}) {
   const title = getPresentTitleHTML(block, { showTitle });
   const image = getPresentInlineImageHTML(block);
   const body = getPresentTextBodyHTML(block, bodyHTML);
-  if (!image) return title + body;
-  return `<div class="present-card-stack">${title}${image}${body}</div>`;
+  const inner = !image
+    ? title + body
+    : `<div class="present-card-stack">${title}${image}${body}</div>`;
+  return shouldMaxCenterPresentText(block) ? wrapPresentMaxTextStack(inner) : inner;
 }
 
 function syncPresentWhiteboardFromBlank() {
@@ -6687,15 +6697,46 @@ function shouldShowPresentTitle(block) {
   return !presentExpanded;
 }
 
+function syncPresentExpandedTextLayout() {
+  if (!presentExpanded || !presentStage) return;
+  const card = presentStage.querySelector(
+    '.present-card--heading, .present-card--note, .present-card--list'
+  );
+  if (!card) return;
+  const stack = card.querySelector('.present-max-text');
+  if (!stack) return;
+
+  stack.classList.remove('present-max-text--top', 'present-max-text--scroll');
+  const cardPad = 56;
+  const overflows = stack.scrollHeight > card.clientHeight - cardPad;
+
+  if (card.classList.contains('present-card--heading')) {
+    if (overflows) stack.classList.add('present-max-text--scroll');
+    return;
+  }
+
+  if (overflows) stack.classList.add('present-max-text--top');
+}
+
+function schedulePresentExpandedTextLayout() {
+  if (!presentExpanded) return;
+  requestAnimationFrame(() => {
+    syncPresentExpandedTextLayout();
+    requestAnimationFrame(syncPresentExpandedTextLayout);
+  });
+}
+
 function syncPresentExpandedChrome() {
   presentOverlay.classList.toggle('present-expanded', presentExpanded);
   presentStage.classList.toggle('present-stage--expanded', presentExpanded);
   const btn = $('.present-expand', presentStage);
-  if (!btn) return;
-  btn.setAttribute('aria-label', presentExpanded ? 'Restore size' : 'Expand to full screen');
-  btn.title = presentExpanded ? 'Restore size' : 'Expand to full screen';
-  btn.setAttribute('aria-pressed', presentExpanded ? 'true' : 'false');
-  btn.innerHTML = presentExpanded ? PRESENT_RESTORE_ICON : PRESENT_EXPAND_ICON;
+  if (btn) {
+    btn.setAttribute('aria-label', presentExpanded ? 'Restore size' : 'Expand to full screen');
+    btn.title = presentExpanded ? 'Restore size' : 'Expand to full screen';
+    btn.setAttribute('aria-pressed', presentExpanded ? 'true' : 'false');
+    btn.innerHTML = presentExpanded ? PRESENT_RESTORE_ICON : PRESENT_EXPAND_ICON;
+  }
+  schedulePresentExpandedTextLayout();
 }
 
 function setPresentExpanded(expanded) {
@@ -6812,6 +6853,7 @@ async function renderPresent() {
   bindPresentBrainBreakReveal();
   bindPresentWorldMapReveal();
   presentCounter.textContent = `${presentIndex + 1} / ${blocks.length}`;
+  schedulePresentExpandedTextLayout();
 }
 
 function getPresentHTML(block, { showTitle = true } = {}) {
@@ -6913,10 +6955,10 @@ function getPresentHTML(block, { showTitle = true } = {}) {
     case 'heading': {
       const titlePart = getPresentTitleHTML(block, { showTitle: true });
       const subtitle = (block.content || '').trim();
-      if (!subtitle) {
-        return titlePart + (block.title?.trim() ? '' : getPresentTextBodyHTML(block, '<p>Empty block</p>'));
-      }
-      return titlePart + getPresentTextBodyHTML(block, block.content);
+      const inner = !subtitle
+        ? titlePart + (block.title?.trim() ? '' : getPresentTextBodyHTML(block, '<p>Empty block</p>'))
+        : titlePart + getPresentTextBodyHTML(block, block.content);
+      return wrapPresentMaxTextStack(inner);
     }
     case 'note':
       return wrapPresentTextCardHTML(block, block.content || '<p>Empty block</p>', { showTitle });
@@ -9577,6 +9619,9 @@ function init() {
         render();
       } else {
         resizeCanvasToContent();
+      }
+      if (presentOverlay && !presentOverlay.hidden && presentExpanded) {
+        schedulePresentExpandedTextLayout();
       }
     }, 220);
   });
