@@ -238,15 +238,11 @@
       </aside>
       <div class="add-dialog-main">
       <header class="dialog-header">
-        <h2>New post</h2>
+        <h2>New card</h2>
         <button type="button" class="btn-icon dialog-close" data-close aria-label="Close">×</button>
       </header>
-      <p class="picker-intro">Select post types, HOT activities, or brain breaks, then tap Done.</p>
+      <p class="picker-intro">Select card types, HOT activities, or brain breaks, then tap Done.</p>
       <div class="type-grid">
-        <button type="button" class="type-card" data-side-panel="hot">
-          <span class="type-icon hot">◆</span>
-          <span class="type-label">HOT activities</span>
-        </button>
         <button type="button" class="type-card" data-type="bloom">
           <span class="type-icon bloom">△</span>
           <span class="type-label">Bloom's taxonomy</span>
@@ -262,6 +258,10 @@
         <button type="button" class="type-card" data-type="heading">
           <span class="type-icon heading">H</span>
           <span class="type-label">Heading</span>
+        </button>
+        <button type="button" class="type-card" data-side-panel="hot">
+          <span class="type-icon hot">◆</span>
+          <span class="type-label">HOT activities</span>
         </button>
         <button type="button" class="type-card" data-type="image">
           <span class="type-icon image">▣</span>
@@ -372,39 +372,52 @@
     </div>
     <div class="blank-pane blank-pane-type" data-blank-pane="type">
       <div class="blank-type-toolbar">
-        <div class="blank-table-insert" role="group" aria-label="Insert table">
-          <label class="blank-table-insert-field">
-            <span class="blank-table-insert-label">Rows</span>
-            <input type="number" id="blankTableRows" min="1" max="12" value="3" aria-label="Table rows" />
-          </label>
-          <label class="blank-table-insert-field">
-            <span class="blank-table-insert-label">Columns</span>
-            <input type="number" id="blankTableCols" min="1" max="8" value="3" aria-label="Table columns" />
-          </label>
-          <button type="button" id="blankInsertTable" class="btn btn-ghost btn-sm">Insert table</button>
-        </div>
         <p id="blankWhiteboardTitle" class="blank-whiteboard-title" hidden></p>
       </div>
       <div class="blank-editor" id="blankEditor" data-placeholder="Type for the class…"></div>
+      <div class="blank-type-tools blank-pane-footer">
+        <div class="blank-pane-footer-row">
+          <div class="blank-pane-footer-main">
+            <div class="blank-table-insert" role="group" aria-label="Insert table">
+              <span class="blank-type-tools-label">Table</span>
+              <label class="blank-table-insert-field">
+                <span class="blank-table-insert-label">Rows</span>
+                <input type="number" id="blankTableRows" min="1" max="12" value="3" aria-label="Table rows" />
+              </label>
+              <label class="blank-table-insert-field">
+                <span class="blank-table-insert-label">Columns</span>
+                <input type="number" id="blankTableCols" min="1" max="8" value="3" aria-label="Table columns" />
+              </label>
+              <button type="button" id="blankInsertTable" class="btn btn-ghost btn-sm">Insert table</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
     <div class="blank-pane blank-pane-draw" data-blank-pane="draw" hidden>
       <p id="blankWhiteboardTitleDraw" class="blank-whiteboard-title blank-whiteboard-title--draw-pane" hidden></p>
-      <canvas id="blankCanvas" class="blank-canvas"></canvas>
-      <div class="blank-draw-tools">
-        <div class="blank-draw-tools-row">
-        <div class="blank-draw-tools-main">
+      <div class="blank-canvas-stack">
+        <div id="blankCanvasPaper" class="blank-canvas-paper blank-paper-surface blank-paper-surface--plain" aria-hidden="true"></div>
+        <canvas id="blankCanvas" class="blank-canvas"></canvas>
+      </div>
+      <div class="blank-draw-tools blank-pane-footer">
+        <div class="blank-pane-footer-row">
+        <div class="blank-pane-footer-main">
+          <div class="blank-draw-paper" role="group" aria-label="Paper background">
+            <button type="button" class="blank-draw-paper-btn is-active" data-blank-paper="plain" aria-pressed="true">Plain</button>
+            <button type="button" class="blank-draw-paper-btn" data-blank-paper="lined" aria-pressed="false">Lined</button>
+            <button type="button" class="blank-draw-paper-btn" data-blank-paper="quad" aria-pressed="false">Grid</button>
+          </div>
+          <div id="blankPaperScale" class="blank-draw-paper-scale" hidden>
+            <button type="button" id="blankPaperSmaller" class="blank-draw-paper-scale-btn" aria-label="Smaller lines or squares">−</button>
+            <span id="blankPaperScaleLabel" class="blank-draw-paper-scale-label">Medium</span>
+            <button type="button" id="blankPaperLarger" class="blank-draw-paper-scale-btn" aria-label="Larger lines or squares">+</button>
+          </div>
           <div class="blank-draw-modes" role="group" aria-label="Tool">
             <button type="button" class="blank-draw-mode is-active" data-draw-tool="pen" aria-pressed="true">Pen</button>
             <button type="button" class="blank-draw-mode" data-draw-tool="eraser" aria-pressed="false">Eraser</button>
           </div>
-          <div class="blank-draw-colors" id="blankDrawColors" role="group" aria-label="Colour">
-            <button type="button" class="blank-draw-color is-active" data-draw-color="#f4f6f8" style="--swatch:#f4f6f8" aria-label="White" aria-pressed="true"></button>
-            <button type="button" class="blank-draw-color" data-draw-color="#fbbf24" style="--swatch:#fbbf24" aria-label="Yellow" aria-pressed="false"></button>
-            <button type="button" class="blank-draw-color" data-draw-color="#f87171" style="--swatch:#f87171" aria-label="Red" aria-pressed="false"></button>
-            <button type="button" class="blank-draw-color" data-draw-color="#4ade80" style="--swatch:#4ade80" aria-label="Green" aria-pressed="false"></button>
-            <button type="button" class="blank-draw-color" data-draw-color="#60a5fa" style="--swatch:#60a5fa" aria-label="Blue" aria-pressed="false"></button>
-            <button type="button" class="blank-draw-color" data-draw-color="#c084fc" style="--swatch:#c084fc" aria-label="Violet" aria-pressed="false"></button>
-          </div>
+          <div class="blank-draw-colors" id="blankDrawColors" role="group" aria-label="Colour"></div>
           <div class="blank-draw-sizes" role="group" aria-label="Thickness">
             <button type="button" class="blank-draw-size" data-draw-size="s" aria-pressed="false">S</button>
             <button type="button" class="blank-draw-size is-active" data-draw-size="m" aria-pressed="true">M</button>
@@ -414,7 +427,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>
           </button>
         </div>
-        <button type="button" id="blankClearDraw" class="btn btn-ghost btn-sm">Clear drawing</button>
+        <button type="button" id="blankClearDraw" class="btn btn-ghost btn-sm blank-pane-footer-action">Clear drawing</button>
         </div>
       </div>
     </div>

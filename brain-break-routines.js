@@ -1,5 +1,5 @@
 /**
- * Brain break library — Post → Brain breaks (multi-select picker).
+ * Brain break library — card → Brain breaks (multi-select picker).
  */
 (function () {
   window.PREZ_BRAIN_BREAK_ROUTINES = [

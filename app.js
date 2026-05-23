@@ -70,6 +70,10 @@ function syncBlockHeader(el, block) {
 }
 
 const BACKGROUNDS = [
+  {
+    id: 'studio',
+    style: 'linear-gradient(145deg, #1a2332 0%, #2a3544 42%, #3d4f5f 100%)',
+  },
   { id: 'aurora', style: 'linear-gradient(135deg, #1a365d 0%, #2c5282 40%, #ed8936 100%)' },
   { id: 'civics', style: 'linear-gradient(160deg, #234e70 0%, #fb8500 55%, #ffb703 100%)' },
   { id: 'chalk', style: 'linear-gradient(180deg, #2d3748 0%, #4a5568 100%)' },
@@ -115,6 +119,31 @@ const BACKGROUNDS = [
   { id: 'chrome', style: 'linear-gradient(135deg, #94a3b8 0%, #e2e8f0 30%, #64748b 60%, #f8fafc 100%)' },
   { id: 'academic', style: 'linear-gradient(160deg, #1e3a5f 0%, #2563eb 40%, #93c5fd 100%)' },
 ];
+
+const BLANK_PAPER_TYPES = new Set(['plain', 'lined', 'quad']);
+const BLANK_PAPER_STEP_DEFAULT = 2;
+const BLANK_PAPER_LINE_STEPS = [24, 30, 36, 44, 52, 60];
+const BLANK_PAPER_CELL_STEPS = [40, 48, 56, 64, 72, 80];
+const BLANK_PAPER_SCALE_LABELS = ['XS', 'S', 'Medium', 'L', 'XL', 'XXL'];
+const BLANK_DRAW_WIDTHS = { s: 3, m: 6, l: 12 };
+const BLANK_DRAW_DEFAULT_COLOR = '#1a1d23';
+const BLANK_DRAW_COLORS = [
+  { color: '#1a1d23', label: 'Black' },
+  { color: '#1e3a5f', label: 'Navy' },
+  { color: '#dc2626', label: 'Red' },
+  { color: '#15803d', label: 'Green' },
+  { color: '#1d4ed8', label: 'Blue' },
+  { color: '#7c3aed', label: 'Violet' },
+];
+const BLANK_DRAW_LEGACY_LIGHT = new Set([
+  '#f4f6f8',
+  '#ffffff',
+  '#fbbf24',
+  '#f87171',
+  '#4ade80',
+  '#60a5fa',
+  '#c084fc',
+]);
 
 const ACCENT_COLORS = {
   coral: { solid: '#7f1d1d', surface: '#b91c1c', header: '#991b1b', lightText: true },
@@ -175,12 +204,14 @@ const DOC_KINDS = {
 
 const DEFAULTS = {
   title: 'Untitled board',
-  background: BACKGROUNDS[1].style,
+  background: BACKGROUNDS[0].style,
   layoutMode: null,
   blocks: [],
   presentOrder: null,
   blankContent: '',
   blankDraw: null,
+  blankPaper: 'plain',
+  blankPaperStep: BLANK_PAPER_STEP_DEFAULT,
   timerSeconds: 300,
   mindMapCenterId: null,
   mindMapBranchSize: 'm',
@@ -356,7 +387,7 @@ let blankDrawCtx = null;
 let blankDrawing = false;
 let blankBlockId = null;
 let blankDrawTool = 'pen';
-let blankDrawColor = '#f4f6f8';
+let blankDrawColor = BLANK_DRAW_DEFAULT_COLOR;
 let blankDrawSize = 'm';
 const blankDrawUndoStack = [];
 let blankStrokeBefore = null;
@@ -369,7 +400,6 @@ let blankDrawDirty = false;
 /** Whiteboard workspace mounted inside Present (type / table / draw). */
 let presentWhiteboardMounted = false;
 
-const BLANK_DRAW_WIDTHS = { s: 3, m: 6, l: 12 };
 const BLANK_DRAW_UNDO_MAX = 24;
 let outlineDragId = null;
 
@@ -568,22 +598,24 @@ const FORMAT_MENU_SECTIONS = [
   },
   {
     label: 'Grid',
-    desc: 'Same-size tiles in rows — every card matches',
+    desc: 'Same-size tiles — every card matches',
+    layout: 'chips',
     items: [
-      { value: 'grid-auto', label: 'Fill screen' },
-      { value: 'grid-2', label: '2 columns' },
-      { value: 'grid-3', label: '3 columns' },
-      { value: 'grid-4', label: '4 columns' },
+      { value: 'grid-auto', label: 'Fill screen', chip: 'Fill' },
+      { value: 'grid-2', label: '2 columns', chip: '2', chipSub: 'columns' },
+      { value: 'grid-3', label: '3 columns', chip: '3', chipSub: 'columns' },
+      { value: 'grid-4', label: '4 columns', chip: '4', chipSub: 'columns' },
     ],
   },
   {
     label: 'Columns',
-    desc: 'Masonry — each card keeps its own height',
+    desc: 'Masonry — cards keep their own height',
+    layout: 'chips',
     items: [
-      { value: 'columns-auto', label: 'Auto columns' },
-      { value: 'columns-2', label: '2 columns' },
-      { value: 'columns-3', label: '3 columns' },
-      { value: 'columns-4', label: '4 columns' },
+      { value: 'columns-auto', label: 'Auto columns', chip: 'Auto' },
+      { value: 'columns-2', label: '2 columns', chip: '2', chipSub: 'columns' },
+      { value: 'columns-3', label: '3 columns', chip: '3', chipSub: 'columns' },
+      { value: 'columns-4', label: '4 columns', chip: '4', chipSub: 'columns' },
     ],
   },
   {
@@ -622,10 +654,12 @@ function normalizeBoardState(data) {
     if (b.type === 'table') normalizeTableColAligns(b);
     if (b.type === 'whiteboard' && !b.blankDraw) b.blankDraw = null;
     else if (b.type === 'whiteboard' && b.blankDraw === '') b.blankDraw = null;
+    if (b.type === 'whiteboard') normalizeBlankPaperFields(b);
   });
   merged.presentOrder = order;
   merged.blankContent = merged.blankContent || '';
   merged.blankDraw = merged.blankDraw || null;
+  normalizeBlankPaperFields(merged);
   merged.timerSeconds = merged.timerSeconds || 300;
   merged.mindMapCenterId = merged.mindMapCenterId || null;
   if (merged.mindMapCenterId && !ids.has(merged.mindMapCenterId)) {
@@ -921,7 +955,7 @@ function createBlockElement(block) {
           <div class="block-size-dropdown"></div>
         </div>
         <div class="block-type-wrap">
-          <button type="button" class="block-icon-btn block-type-btn" aria-label="Change post type" title="Change type">+</button>
+          <button type="button" class="block-icon-btn block-type-btn" aria-label="Change card type" title="Change type">+</button>
           <div class="block-type-dropdown"></div>
         </div>
         <div class="block-menu-wrap">
@@ -996,7 +1030,7 @@ function refreshColorDots(el, block) {
 const BLOCK_TYPE_CHANGE_OPTIONS = [
   ...BLOCK_TYPE_PANEL_OPTIONS,
   ...BLOCK_TYPE_OPTIONS.filter((o) => o.type !== 'brainbreak'),
-];
+].sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
 
 const BLOCK_TYPE_PANEL_COPY = {
   hot: { title: 'HOT activity', intro: 'Pick a student instruction routine for this card.' },
@@ -1415,43 +1449,68 @@ function buildFormatMenuPresentOptionsHTML() {
 }
 
 function buildFormatMenuColorPickerHTML() {
-  const toneRow = (label, ids) => {
-    const dots = ids
+  const colorDots = (ids) =>
+    ids
       .map((id) => {
         const colors = ACCENT_COLORS[id] || ACCENT_COLORS.ocean;
         const title = id.endsWith('-p') ? id.replace('-p', ' (pastel)') : id;
         return `<button type="button" class="color-dot format-global-color" data-global-color="${id}" style="background:${colors.surface}" title="${title}" aria-label="${title}"></button>`;
       })
       .join('');
-    return `<p class="format-menu-color-tone">${label}</p><div class="format-menu-color-grid">${dots}</div>`;
-  };
 
   return `<div class="format-menu-divider"></div>
     <p class="format-menu-heading">GLOBAL CARD COLOUR</p>
-    <p class="format-menu-desc">Apply one colour to every card on this board.</p>
     <div class="format-menu-color-picker">
-      ${toneRow('Bold', ACCENT_DARK)}
-      ${toneRow('Pastel', ACCENT_PASTEL)}
+      <div class="format-menu-color-grid">${colorDots(ACCENT_DARK)}</div>
+      <div class="format-menu-color-grid">${colorDots(ACCENT_PASTEL)}</div>
     </div>`;
 }
 
+function buildFormatMenuLayoutItemHTML(item, { chip = false } = {}) {
+  const label = escapeHtml(item.label);
+  const main = escapeHtml(chip ? item.chip || item.label : item.label);
+  const sub = item.chipSub ? escapeHtml(item.chipSub) : '';
+  const cls = chip ? 'format-menu-item format-menu-chip' : 'format-menu-item format-menu-item--solo';
+  const chipLabel = sub
+    ? `<span class="format-menu-chip-stack" aria-hidden="true"><span class="format-menu-chip-main">${main}</span><span class="format-menu-chip-sub">${sub}</span></span>`
+    : `<span class="format-menu-item-label">${main}</span>`;
+  return `<button type="button" class="${cls}" role="menuitem" data-layout="${item.value}" title="${label}" aria-label="${label}">
+        <span class="format-menu-check" aria-hidden="true">✓</span>
+        ${chipLabel}
+      </button>`;
+}
+
+function buildFormatMenuLayoutSectionHTML(section) {
+  if (section.layout === 'chips') {
+    const chips = section.items.map((item) => buildFormatMenuLayoutItemHTML(item, { chip: true })).join('');
+    const aria = escapeHtml(section.label || 'Layout');
+    return `<div class="format-menu-layout-block">
+      <div class="format-menu-layout-head">
+        <p class="format-menu-heading">${escapeHtml(section.label)}</p>
+        ${section.desc ? `<p class="format-menu-desc">${escapeHtml(section.desc)}</p>` : ''}
+      </div>
+      <div class="format-menu-chip-row" role="group" aria-label="${aria}">${chips}</div>
+    </div>`;
+  }
+  return section.items.map((item) => buildFormatMenuLayoutItemHTML(item)).join('');
+}
+
 function buildFormatMenu() {
-  if (!formatMenu || formatMenu.dataset.built === '4') return;
-  formatMenu.dataset.built = '4';
+  if (!formatMenu || formatMenu.dataset.built === '8') return;
+  formatMenu.dataset.built = '8';
 
   let html = buildFormatMenuColorPickerHTML();
   html += buildFormatMenuPresentOptionsHTML();
   html += '<div class="format-menu-divider"></div>';
   FORMAT_MENU_SECTIONS.forEach((section, si) => {
     if (si > 0) html += '<div class="format-menu-divider"></div>';
+    if (section.layout === 'chips') {
+      html += buildFormatMenuLayoutSectionHTML(section);
+      return;
+    }
     if (section.label) html += `<p class="format-menu-heading">${section.label}</p>`;
     if (section.desc) html += `<p class="format-menu-desc">${section.desc}</p>`;
-    section.items.forEach((item) => {
-      html += `<button type="button" class="format-menu-item" role="menuitem" data-layout="${item.value}">
-        <span class="format-menu-check" aria-hidden="true">✓</span>
-        <span class="format-menu-item-label">${item.label}</span>
-      </button>`;
-    });
+    html += buildFormatMenuLayoutSectionHTML(section);
   });
   formatMenu.innerHTML = html;
   syncFormatMenuGlobalColors();
@@ -2130,6 +2189,9 @@ function mountPresentWhiteboard(block) {
   cleanBlankEditorDom(editor);
   normalizeBlankEditorStructure(editor);
   setBlankTab(block.blankDraw && !(block.blankContent || '').trim() ? 'draw' : 'type');
+  syncBlankPaperLayer();
+  syncBlankDrawToolbar();
+  syncBlankDrawColorForPaper();
   resetBlankCanvasBuffer();
   initBlankCanvas();
   requestAnimationFrame(() => {
@@ -2385,9 +2447,7 @@ function isWhiteboardCardEmpty(block) {
 
 function getWhiteboardPreviewInnerHTML(block) {
   const empty = isWhiteboardCardEmpty(block);
-  const drawImg = block.blankDraw
-    ? `<img class="block-whiteboard-thumb" src="${block.blankDraw}" alt="" />`
-    : '';
+  const drawImg = block.blankDraw ? getWhiteboardDrawStackHTML(block) : '';
   const emptyHint = empty
     ? '<p class="block-whiteboard-empty-hint">Click to type · Open whiteboard for tables &amp; draw</p>'
     : '';
@@ -2403,12 +2463,12 @@ function getWhiteboardPreviewClass(block) {
 function syncWhiteboardDrawThumb(el, block) {
   const preview = $('.block-whiteboard-preview', el);
   if (!preview) return;
-  const thumb = $('.block-whiteboard-thumb', preview);
+  preview.querySelector('.block-whiteboard-draw-wrap')?.remove();
   if (block.blankDraw) {
-    if (thumb) thumb.setAttribute('src', block.blankDraw);
-    else preview.insertAdjacentHTML('beforeend', `<img class="block-whiteboard-thumb" src="${block.blankDraw}" alt="" />`);
-  } else {
-    thumb?.remove();
+    preview.insertAdjacentHTML(
+      'beforeend',
+      `<div class="block-whiteboard-draw-wrap">${getWhiteboardDrawStackHTML(block)}</div>`
+    );
   }
 }
 
@@ -2475,6 +2535,122 @@ function resetBlankCanvasBuffer() {
     canvas.width = 0;
     canvas.height = 0;
   }
+}
+
+function clampBlankPaperStep(step) {
+  const max = BLANK_PAPER_LINE_STEPS.length - 1;
+  const n = typeof step === 'number' ? Math.round(step) : BLANK_PAPER_STEP_DEFAULT;
+  return Math.max(0, Math.min(max, n));
+}
+
+function normalizeBlankPaperFields(target) {
+  if (!target) return;
+  const type = target.blankPaper;
+  target.blankPaper = BLANK_PAPER_TYPES.has(type) ? type : 'plain';
+  target.blankPaperStep = clampBlankPaperStep(target.blankPaperStep);
+}
+
+function getBlankPaperType() {
+  if (blankBlockId) {
+    const b = getBlock(blankBlockId);
+    return BLANK_PAPER_TYPES.has(b?.blankPaper) ? b.blankPaper : 'plain';
+  }
+  normalizeBlankPaperFields(state);
+  return state.blankPaper;
+}
+
+function getBlankPaperStep() {
+  if (blankBlockId) {
+    const b = getBlock(blankBlockId);
+    return clampBlankPaperStep(b?.blankPaperStep);
+  }
+  return clampBlankPaperStep(state.blankPaperStep);
+}
+
+function setBlankPaperType(type) {
+  const paper = BLANK_PAPER_TYPES.has(type) ? type : 'plain';
+  if (blankBlockId) {
+    const b = getBlock(blankBlockId);
+    if (!b) return;
+    b.blankPaper = paper;
+    if (b.type === 'whiteboard') updateWhiteboardPreview(b);
+  } else {
+    state.blankPaper = paper;
+  }
+  syncBlankPaperLayer();
+  syncBlankDrawToolbar();
+  syncBlankDrawColorForPaper();
+  persist();
+}
+
+function setBlankPaperStep(step) {
+  const idx = clampBlankPaperStep(step);
+  if (blankBlockId) {
+    const b = getBlock(blankBlockId);
+    if (!b) return;
+    b.blankPaperStep = idx;
+    if (b.type === 'whiteboard') updateWhiteboardPreview(b);
+  } else {
+    state.blankPaperStep = idx;
+  }
+  syncBlankPaperLayer();
+  syncBlankDrawToolbar();
+  persist();
+}
+
+function getBlankPaperLinePx(step = getBlankPaperStep()) {
+  return BLANK_PAPER_LINE_STEPS[clampBlankPaperStep(step)];
+}
+
+function getBlankPaperCellPx(step = getBlankPaperStep()) {
+  return BLANK_PAPER_CELL_STEPS[clampBlankPaperStep(step)];
+}
+
+function getBlankPaperSurfaceAttrs(blockOrState) {
+  const type = BLANK_PAPER_TYPES.has(blockOrState?.blankPaper) ? blockOrState.blankPaper : 'plain';
+  const step = clampBlankPaperStep(blockOrState?.blankPaperStep);
+  const cls = `blank-paper-surface blank-paper-surface--${type}`;
+  if (type === 'lined') {
+    return { cls, style: `--paper-line:${BLANK_PAPER_LINE_STEPS[step]}px` };
+  }
+  if (type === 'quad') {
+    return { cls, style: `--paper-cell:${BLANK_PAPER_CELL_STEPS[step]}px` };
+  }
+  return { cls: 'blank-paper-surface blank-paper-surface--plain', style: '' };
+}
+
+function getWhiteboardDrawStackHTML(block) {
+  if (!block?.blankDraw) return '';
+  const { cls, style } = getBlankPaperSurfaceAttrs(block);
+  const styleAttr = style ? ` style="${style}"` : '';
+  return `<div class="block-whiteboard-draw-stack ${cls}"${styleAttr}>
+    <img class="block-whiteboard-thumb" src="${block.blankDraw}" alt="" />
+  </div>`;
+}
+
+function syncBlankPaperLayer() {
+  const layer = $('#blankCanvasPaper');
+  if (!layer) return;
+  const type = getBlankPaperType();
+  const step = getBlankPaperStep();
+  layer.className = `blank-canvas-paper blank-paper-surface blank-paper-surface--${type}`;
+  layer.style.removeProperty('--paper-line');
+  layer.style.removeProperty('--paper-cell');
+  if (type === 'lined') layer.style.setProperty('--paper-line', `${BLANK_PAPER_LINE_STEPS[step]}px`);
+  if (type === 'quad') layer.style.setProperty('--paper-cell', `${BLANK_PAPER_CELL_STEPS[step]}px`);
+}
+
+function normalizeBlankDrawColor() {
+  const allowed = new Set(BLANK_DRAW_COLORS.map((c) => c.color));
+  if (!allowed.has(blankDrawColor) || BLANK_DRAW_LEGACY_LIGHT.has(blankDrawColor)) {
+    blankDrawColor = BLANK_DRAW_DEFAULT_COLOR;
+  }
+}
+
+function syncBlankDrawColorForPaper() {
+  if (blankDrawTool === 'eraser') return;
+  normalizeBlankDrawColor();
+  syncBlankDrawToolbar();
 }
 
 function isBlankDrawCanvasEmpty(canvas) {
@@ -4437,6 +4613,8 @@ function clearBlockTypeFields(block) {
   delete block.timerSec;
   delete block.blankContent;
   delete block.blankDraw;
+  delete block.blankPaper;
+  delete block.blankPaperStep;
   delete block.listRevealAll;
   delete block.pollOptions;
   delete block.pollVotes;
@@ -5247,6 +5425,8 @@ function applyBlockTypeDefaults(block, type) {
   } else if (type === 'whiteboard') {
     block.blankContent = block.blankContent || carryToWhiteboard || '';
     block.blankDraw = block.blankDraw || null;
+    if (!block.blankPaper) block.blankPaper = 'lined';
+    normalizeBlankPaperFields(block);
     if (block.w < 320) block.w = 360;
     if (block.h < 240) block.h = 280;
   }
@@ -6108,7 +6288,7 @@ function applyTemplateLayout(templateId, blocks, centerId) {
   else if (templateId === 'mind-map' && centerId) layoutMindMapBlocks(blocks, centerId);
 }
 
-// --- HOT activity routines (Post → HOT activity) ---
+// --- HOT activity routines (card → HOT activity) ---
 
 const HOT_CATEGORY_STYLES = {
   Discussion: { accent: '#6d28d9', surface: '#ede9fe' },
@@ -6540,7 +6720,7 @@ function commitPostPicker() {
   $('#addDialog')?.close();
 
   const parts = [];
-  if (types.length) parts.push(`${types.length} post${types.length === 1 ? '' : 's'}`);
+  if (types.length) parts.push(`${types.length} card${types.length === 1 ? '' : 's'}`);
   if (hotIds.length) parts.push(`${hotIds.length} HOT`);
   if (brainIds.length) parts.push(`${brainIds.length} brain break${brainIds.length === 1 ? '' : 's'}`);
   showToast(parts.length ? `Added ${parts.join(', ')}` : 'Nothing added');
@@ -6662,7 +6842,7 @@ function initHotDialog() {
   buildHotRoutineList();
 }
 
-// --- Brain breaks (Post → Brain breaks) ---
+// --- Brain breaks (card → Brain breaks) ---
 
 function findBrainBreakActivity(id) {
   for (const group of getBrainBreakLibrary()) {
@@ -7289,7 +7469,11 @@ function getPresentHTML(block, { showTitle = true } = {}) {
         body += `<div class="present-body present-body--text">${block.blankContent}</div>`;
       }
       if (block.blankDraw) {
-        body += `<img class="present-whiteboard-draw" src="${block.blankDraw}" alt="" />`;
+        const { cls, style } = getBlankPaperSurfaceAttrs(block);
+        const styleAttr = style ? ` style="${style}"` : '';
+        body += `<div class="present-whiteboard-draw-wrap ${cls}"${styleAttr}>
+            <img class="present-whiteboard-draw" src="${block.blankDraw}" alt="" />
+          </div>`;
       }
       if (!body) body = '<p>Empty whiteboard</p>';
       return title + body;
@@ -8187,10 +8371,14 @@ function openBlank(blockId) {
   if (block?.type === 'whiteboard') setBlankTab('draw');
   else setBlankTab('type');
   syncBlankWhiteboardTitle();
+  syncBlankPaperLayer();
+  syncBlankDrawToolbar();
+  syncBlankDrawColorForPaper();
   resetBlankCanvasBuffer();
   initBlankCanvas();
   requestAnimationFrame(() => {
     resizeBlankCanvas();
+    requestAnimationFrame(resizeBlankCanvas);
     if (block?.type !== 'whiteboard') {
       editor?.querySelector(':scope > .blank-editor-surface')?.focus();
     }
@@ -8233,10 +8421,13 @@ function setBlankTab(tab) {
     p.hidden = p.dataset.blankPane !== tab;
   });
   if (tab === 'draw') {
+    syncBlankPaperLayer();
     syncBlankDrawToolbar();
+    syncBlankDrawColorForPaper();
     requestAnimationFrame(() => {
       initBlankCanvas();
       resizeBlankCanvas();
+      requestAnimationFrame(resizeBlankCanvas);
     });
   }
 }
@@ -8307,6 +8498,21 @@ function undoBlankDrawStroke() {
 
 function syncBlankDrawToolbar() {
   const canvas = $('#blankCanvas');
+  const paperType = getBlankPaperType();
+  const paperStep = getBlankPaperStep();
+  $$('[data-blank-paper]').forEach((btn) => {
+    const on = btn.dataset.blankPaper === paperType;
+    btn.classList.toggle('is-active', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  const scaleWrap = $('#blankPaperScale');
+  const scaleLabel = $('#blankPaperScaleLabel');
+  if (scaleWrap) scaleWrap.hidden = paperType === 'plain';
+  if (scaleLabel) scaleLabel.textContent = BLANK_PAPER_SCALE_LABELS[paperStep] || 'Medium';
+  const smallerBtn = $('#blankPaperSmaller');
+  const largerBtn = $('#blankPaperLarger');
+  if (smallerBtn) smallerBtn.disabled = paperStep <= 0;
+  if (largerBtn) largerBtn.disabled = paperStep >= BLANK_PAPER_LINE_STEPS.length - 1;
   $$('[data-draw-tool]').forEach((btn) => {
     const on = btn.dataset.drawTool === blankDrawTool;
     btn.classList.toggle('is-active', on);
@@ -8442,8 +8648,27 @@ function saveBlankDraw() {
   } catch (_) {}
 }
 
+function renderBlankDrawColors() {
+  const wrap = $('#blankDrawColors');
+  if (!wrap || wrap.dataset.built === '1') return;
+  wrap.dataset.built = '1';
+  wrap.innerHTML = BLANK_DRAW_COLORS.map((entry) => {
+    const active = entry.color === blankDrawColor;
+    return `<button type="button" class="blank-draw-color${active ? ' is-active' : ''}" data-draw-color="${entry.color}" style="--swatch:${entry.color}" aria-label="${entry.label}" aria-pressed="${active ? 'true' : 'false'}"></button>`;
+  }).join('');
+}
+
 function initBlankDrawToolbar() {
   $('#blankDrawUndo')?.addEventListener('click', () => undoBlankDrawStroke());
+
+  renderBlankDrawColors();
+  normalizeBlankDrawColor();
+
+  $$('[data-blank-paper]').forEach((btn) => {
+    btn.addEventListener('click', () => setBlankPaperType(btn.dataset.blankPaper || 'plain'));
+  });
+  $('#blankPaperSmaller')?.addEventListener('click', () => setBlankPaperStep(getBlankPaperStep() - 1));
+  $('#blankPaperLarger')?.addEventListener('click', () => setBlankPaperStep(getBlankPaperStep() + 1));
 
   $$('[data-draw-tool]').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -8451,12 +8676,12 @@ function initBlankDrawToolbar() {
       syncBlankDrawToolbar();
     });
   });
-  $$('[data-draw-color]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      blankDrawColor = btn.dataset.drawColor || '#f4f6f8';
-      blankDrawTool = 'pen';
-      syncBlankDrawToolbar();
-    });
+  $('#blankDrawColors')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-draw-color]');
+    if (!btn) return;
+    blankDrawColor = btn.dataset.drawColor || BLANK_DRAW_DEFAULT_COLOR;
+    blankDrawTool = 'pen';
+    syncBlankDrawToolbar();
   });
   $$('[data-draw-size]').forEach((btn) => {
     btn.addEventListener('click', () => {

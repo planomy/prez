@@ -4,8 +4,8 @@
 (function () {
   const BG_ACADEMIC = 'linear-gradient(160deg, #1e3a5f 0%, #2563eb 40%, #93c5fd 100%)';
   const BG_PAPER = 'linear-gradient(180deg, #f7f5f0 0%, #e8e4dc 100%)';
-  /** Same as app.js DEFAULTS.background (civics) — home / new board look */
-  const BG_HOME = 'linear-gradient(160deg, #234e70 0%, #fb8500 55%, #ffb703 100%)';
+  /** Same as app.js DEFAULTS.background (studio) — home / new board look */
+  const BG_HOME = 'linear-gradient(145deg, #1a2332 0%, #2a3544 42%, #3d4f5f 100%)';
   const BG_TWILIGHT = 'linear-gradient(180deg, #312e81 0%, #be185d 50%, #f97316 100%)';
   const BG_FOREST = 'linear-gradient(135deg, #134e4a 0%, #065f46 50%, #047857 100%)';
   const BG_STEM_MATH = 'linear-gradient(160deg, #0c4a6e 0%, #0369a1 42%, #7dd3fc 100%)';
@@ -1507,7 +1507,7 @@
       id: 'mind-map',
       name: 'Mind map',
       description:
-        'Central topic with branches around the hub (choose 3–8). Post adds more branches clockwise from 12 o’clock.',
+        'Central topic with branches around the hub (choose 3–8). Each new card adds more branches clockwise from 12 o’clock.',
       category: 'Thinking & collaboration',
       layout: 'mind-map',
       configure: { kind: 'branches', min: 3, max: 8, default: 6, label: 'branches' },

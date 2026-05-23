@@ -1,5 +1,5 @@
 /**
- * HOT activity routines — one student-instruction card each (Post → HOT activity).
+ * HOT activity routines — one student-instruction card each (card → HOT activity).
  */
 (function () {
   const HOT_ICON_DIR = 'assets/hot/';
