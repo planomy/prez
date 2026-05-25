@@ -3861,6 +3861,11 @@ body.table-col-resize-active .blank-table-wrap {
   align-items: stretch;
 }
 
+.present-overlay.present-expanded .present-stage .present-card.present-card--link {
+  justify-content: flex-start;
+  align-items: stretch;
+}
+
 .present-overlay.present-expanded .present-stage .present-card:is(
     .present-card--heading,
     .present-card--note,
@@ -4704,20 +4709,36 @@ body.table-col-resize-active .blank-table-wrap {
 .present-overlay.present-expanded .present-link-embed,
 .present-stage--expanded .present-doc-pdf,
 .present-stage--expanded .present-link-embed {
-  flex: 1;
+  flex: 1 1 auto;
+  align-self: stretch;
   min-height: 0;
+  width: 100%;
   height: auto;
   max-height: none;
 }
 
-.present-overlay.present-expanded .present-doc-pdf,
-.present-overlay.present-expanded .present-link-embed {
-  border-radius: 6px;
+.present-overlay.present-expanded .present-card--link,
+.present-overlay.present-expanded .present-card--document:has(.present-doc-pdf) {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
 }
 
+.present-overlay.present-expanded .present-doc-pdf,
+.present-overlay.present-expanded .present-link-embed {
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+}
+
+.present-overlay.present-expanded .present-link-embed .link-iframe,
+.present-overlay.present-expanded .present-doc-pdf iframe,
 .present-stage--expanded .present-doc-pdf iframe,
 .present-stage--expanded .present-link-embed .link-iframe {
-  min-height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
   height: 100%;
 }
 
@@ -4741,7 +4762,7 @@ body.table-col-resize-active .blank-table-wrap {
   overflow: auto;
 }
 
-.present-overlay.present-expanded .present-card > :not(.present-expand):not(h1) {
+.present-overlay.present-expanded .present-card > :not(.present-expand):not(h1):not(.present-link-embed):not(.present-doc-pdf):not(.present-doc-docx) {
   flex: 0 0 auto;
   min-height: 0;
 }
