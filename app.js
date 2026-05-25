@@ -9261,7 +9261,7 @@ function renderOutline() {
     const block = getBlock(id);
     if (!block) return;
     const li = document.createElement('li');
-    li.className = 'outline-item' + (selectedId === id ? ' is-selected' : '');
+    li.className = 'outline-item' + (isBlockSelected(id) ? ' is-selected' : '');
     li.dataset.blockId = id;
     li.draggable = true;
     li.innerHTML = `<span class="outline-item-num">${i + 1}</span>
@@ -9278,8 +9278,9 @@ function renderOutline() {
       deleteBlock(id);
     });
 
-    li.addEventListener('click', () => {
-      selectBlock(id);
+    li.addEventListener('click', (e) => {
+      const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+      selectBlock(id, additive ? { toggle: true } : {});
       renderOutline();
     });
     li.addEventListener('dblclick', () => openPresent(id));
