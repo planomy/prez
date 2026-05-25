@@ -888,8 +888,8 @@ function render() {
       updateBlockElement(el, block);
     }
     positionBlock(el, block);
-    el.classList.toggle('is-selected', block.id === selectedId || selectedIds.has(block.id));
   });
+  syncSelectionClasses();
 
   updateEmptyState();
   syncMindMapSizeControls();
@@ -4768,15 +4768,23 @@ function startResize(e, block, el, direction) {
 
 function clearBlockSelection() {
   if (!selectedId && selectedIds.size === 0) return;
-  if (selectedId) {
-    $(`[data-block-id="${selectedId}"]`, canvasInner)?.classList.remove('is-selected');
-  }
-  selectedIds.forEach((id) => {
-    $(`[data-block-id="${id}"]`, canvasInner)?.classList.remove('is-selected');
-  });
   selectedIds.clear();
   selectedId = null;
+  syncSelectionClasses();
   updateAlignToolbar();
+}
+
+function syncSelectionClasses() {
+  const multi = selectedIds.size > 1;
+  $$('[data-block-id]', canvasInner).forEach((el) => {
+    const id = el.dataset.blockId;
+    const inSet = selectedIds.has(id);
+    const isPrimary = id === selectedId;
+    const isSelected = inSet || isPrimary;
+    el.classList.toggle('is-selected', isSelected);
+    el.classList.toggle('is-multi-selected', multi && isSelected);
+    el.classList.toggle('is-primary-selected', multi && isPrimary);
+  });
 }
 
 function getSelectedBlockIds() {
@@ -4892,21 +4900,16 @@ function applyMarqueeSelection(rect, additive, baseSet, basePrimary) {
   selectedIds.clear();
   ids.forEach((id) => selectedIds.add(id));
   selectedId = ids.size ? (additive && basePrimary && ids.has(basePrimary) ? basePrimary : [...ids].pop()) : null;
-  state.blocks.forEach((b) => {
-    const el = $(`[data-block-id="${b.id}"]`, canvasInner);
-    if (el) el.classList.toggle('is-selected', ids.has(b.id));
-  });
+  syncSelectionClasses();
   updateAlignToolbar();
 }
 
 function selectAllBlocks() {
   if (state.blocks.length === 0) return;
-  clearBlockSelection();
-  state.blocks.forEach((b) => {
-    selectedIds.add(b.id);
-    $(`[data-block-id="${b.id}"]`, canvasInner)?.classList.add('is-selected');
-  });
+  selectedIds.clear();
+  state.blocks.forEach((b) => selectedIds.add(b.id));
   selectedId = state.blocks[state.blocks.length - 1].id;
+  syncSelectionClasses();
   updateAlignToolbar();
 }
 
@@ -4917,25 +4920,17 @@ function selectBlock(id, opts = {}) {
   if (additive || toggle) {
     if (toggle && selectedIds.has(id)) {
       selectedIds.delete(id);
-      $(`[data-block-id="${id}"]`, canvasInner)?.classList.remove('is-selected');
       if (selectedId === id) {
         selectedId = selectedIds.size ? [...selectedIds].pop() : null;
       }
+      syncSelectionClasses();
       updateAlignToolbar();
       return;
     }
     if (prev && prev !== id) selectedIds.add(prev);
     selectedIds.add(id);
   } else {
-    selectedIds.forEach((sid) => {
-      if (sid !== id) {
-        $(`[data-block-id="${sid}"]`, canvasInner)?.classList.remove('is-selected');
-      }
-    });
     selectedIds.clear();
-    if (prev && prev !== id) {
-      $(`[data-block-id="${prev}"]`, canvasInner)?.classList.remove('is-selected');
-    }
   }
 
   selectedId = id;
@@ -4944,7 +4939,6 @@ function selectBlock(id, opts = {}) {
   const el = $(`[data-block-id="${id}"]`, canvasInner);
   const block = getBlock(id);
   if (el && block) {
-    el.classList.add('is-selected');
     positionBlock(el, block);
     if (blockAcceptsImagePaste(block)) {
       requestAnimationFrame(() => {
@@ -4955,6 +4949,7 @@ function selectBlock(id, opts = {}) {
       });
     }
   }
+  syncSelectionClasses();
   updateAlignToolbar();
 }
 
@@ -10820,6 +10815,8 @@ function init() {
       !e.target.closest('dialog') &&
       !e.target.closest('.toolbar-timer') &&
       !e.target.closest('#timerFloat') &&
+      !e.target.closest('#outlinePanel') &&
+      !e.target.closest('.toolbar') &&
       Date.now() - marqueeJustEndedAt > 200
     ) {
       clearBlockSelection();
