@@ -4885,6 +4885,103 @@ function initMarqueeSelect() {
   canvas.addEventListener('pointerdown', onPointerDown);
 }
 
+const TOOLTIP_SHOW_DELAY = 380;
+const TOOLTIP_HIDE_DELAY = 80;
+let tooltipEl = null;
+let tooltipShowTimer = null;
+let tooltipHideTimer = null;
+let tooltipCurrentTarget = null;
+
+function initTooltips() {
+  tooltipEl = document.createElement('div');
+  tooltipEl.id = 'appTooltip';
+  tooltipEl.className = 'app-tooltip';
+  tooltipEl.setAttribute('role', 'tooltip');
+  tooltipEl.hidden = true;
+  document.body.appendChild(tooltipEl);
+
+  document.addEventListener('pointerover', (e) => {
+    const target = e.target.closest('[title], [data-tooltip]');
+    if (!target || target === tooltipCurrentTarget) return;
+    if (target.closest('input, textarea, [contenteditable="true"]')) return;
+    cacheNativeTitle(target);
+    const text = target.dataset.tooltip;
+    if (!text) return;
+    tooltipCurrentTarget = target;
+    clearTimeout(tooltipShowTimer);
+    clearTimeout(tooltipHideTimer);
+    tooltipShowTimer = setTimeout(() => showTooltip(target, text), TOOLTIP_SHOW_DELAY);
+  });
+
+  document.addEventListener('pointerout', (e) => {
+    const target = e.target.closest('[data-tooltip]');
+    if (!target || target !== tooltipCurrentTarget) return;
+    if (target.contains(e.relatedTarget)) return;
+    tooltipCurrentTarget = null;
+    clearTimeout(tooltipShowTimer);
+    clearTimeout(tooltipHideTimer);
+    tooltipHideTimer = setTimeout(hideTooltip, TOOLTIP_HIDE_DELAY);
+  });
+
+  document.addEventListener('pointerdown', hideTooltipImmediate, true);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') hideTooltipImmediate();
+  });
+  window.addEventListener('blur', hideTooltipImmediate);
+  window.addEventListener('scroll', hideTooltipImmediate, true);
+}
+
+function cacheNativeTitle(el) {
+  if (el.dataset.tooltip) {
+    if (el.hasAttribute('title')) el.removeAttribute('title');
+    return;
+  }
+  const title = el.getAttribute('title');
+  if (title) {
+    el.dataset.tooltip = title;
+    el.removeAttribute('title');
+  }
+}
+
+function showTooltip(target, text) {
+  if (!tooltipEl || !document.body.contains(target)) return;
+  tooltipEl.textContent = text;
+  tooltipEl.hidden = false;
+  const rect = target.getBoundingClientRect();
+  const tipRect = tooltipEl.getBoundingClientRect();
+  const margin = 8;
+  let top = rect.top - tipRect.height - margin;
+  let placement = 'top';
+  if (top < 4) {
+    top = rect.bottom + margin;
+    placement = 'bottom';
+  }
+  let left = rect.left + rect.width / 2 - tipRect.width / 2;
+  left = Math.max(6, Math.min(window.innerWidth - tipRect.width - 6, left));
+  tooltipEl.style.top = `${Math.round(top)}px`;
+  tooltipEl.style.left = `${Math.round(left)}px`;
+  tooltipEl.dataset.placement = placement;
+  tooltipEl.classList.add('is-visible');
+}
+
+function hideTooltip() {
+  if (!tooltipEl) return;
+  tooltipEl.classList.remove('is-visible');
+  tooltipHideTimer = setTimeout(() => {
+    if (tooltipEl && !tooltipEl.classList.contains('is-visible')) tooltipEl.hidden = true;
+  }, 140);
+}
+
+function hideTooltipImmediate() {
+  clearTimeout(tooltipShowTimer);
+  clearTimeout(tooltipHideTimer);
+  tooltipCurrentTarget = null;
+  if (tooltipEl) {
+    tooltipEl.classList.remove('is-visible');
+    tooltipEl.hidden = true;
+  }
+}
+
 function applyMarqueeSelection(rect, additive, baseSet, basePrimary) {
   const ids = new Set(additive ? baseSet : []);
   state.blocks.forEach((b) => {
@@ -10681,6 +10778,7 @@ function init() {
   syncKeyboardShortcutsHint();
   bindToolbar();
   initMarqueeSelect();
+  initTooltips();
 
   try {
     initBackgroundPicker();
