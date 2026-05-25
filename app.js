@@ -4301,8 +4301,17 @@ function finishDragPlacement(block) {
     syncAllBlockPositions();
     return;
   }
-  pushBlocksAsideFrom(block);
+  if (blockOverlapsAnyOther(block)) {
+    pushBlocksAsideFrom(block);
+  }
   syncAllBlockPositions();
+}
+
+function blockOverlapsAnyOther(block) {
+  const rect = blockEdges(block);
+  return state.blocks.some(
+    (other) => other.id !== block.id && hotRectOverlapsBlock(rect, other, 0)
+  );
 }
 
 function startDrag(e, block, el) {
