@@ -5012,24 +5012,25 @@ function selectAllBlocks() {
 
 function selectBlock(id, opts = {}) {
   const { additive = false, toggle = false } = opts;
-  const prev = selectedId;
 
-  if (additive || toggle) {
-    if (toggle && selectedIds.has(id)) {
-      selectedIds.delete(id);
-      if (selectedId === id) {
-        selectedId = selectedIds.size ? [...selectedIds].pop() : null;
-      }
-      syncSelectionClasses();
-      updateAlignToolbar();
-      return;
+  if (toggle && selectedIds.has(id) && selectedIds.size > 1) {
+    selectedIds.delete(id);
+    if (selectedId === id) {
+      selectedId = [...selectedIds].pop();
     }
-    if (prev && prev !== id) selectedIds.add(prev);
-    selectedIds.add(id);
-  } else {
-    selectedIds.clear();
+    syncSelectionClasses();
+    updateAlignToolbar();
+    return;
+  }
+  // If shift-clicking the only selected card, do nothing rather than fully deselect.
+  if (toggle && selectedIds.has(id) && selectedIds.size === 1) {
+    return;
   }
 
+  if (!additive && !toggle) {
+    selectedIds.clear();
+  }
+  selectedIds.add(id);
   selectedId = id;
   bringToFront(id);
 
