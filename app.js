@@ -4534,8 +4534,7 @@ function startDrag(e, block, el) {
   if (e.button !== 0) return;
   e.preventDefault();
   const additive = e.shiftKey || e.metaKey || e.ctrlKey;
-  if (!isBlockSelected(block.id) && !additive) selectBlock(block.id);
-  else if (!isBlockSelected(block.id) && additive) selectBlock(block.id, { additive: true });
+  if (!additive && !isBlockSelected(block.id)) selectBlock(block.id);
   bringToFront(block.id);
 
   const groupIds = getSelectedBlockIds().filter((id) => id !== block.id);
