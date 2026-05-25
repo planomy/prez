@@ -4112,7 +4112,7 @@ function findDropSwapTarget(block) {
   for (const other of state.blocks) {
     if (other.id === block.id) continue;
     const info = getDragOverlapInfo(block, other);
-    if (!info.conflicts && info.ratio < 0.08) continue;
+    if (info.ratio <= 0) continue;
     const score = (info.centerInOther ? 10 : 0) + info.ratio;
     if (score > bestScore) {
       bestScore = score;
