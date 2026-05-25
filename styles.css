@@ -827,6 +827,19 @@ body {
   padding: 48px;
 }
 
+.marquee-rect {
+  position: absolute;
+  border: 1px dashed rgba(96, 165, 250, 0.85);
+  background: rgba(96, 165, 250, 0.14);
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+.marquee-rect[hidden] {
+  display: none;
+}
+
 /* Blocks */
 .block {
   position: absolute;

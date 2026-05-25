@@ -368,7 +368,10 @@ const initialLoad = loadState();
 let state = initialLoad.state;
 let showHomeOnStart = !initialLoad.hasSaved;
 let selectedId = null;
+const selectedIds = new Set();
 let dragState = null;
+let marqueeState = null;
+let marqueeJustEndedAt = 0;
 let resizeState = null;
 let presentIndex = 0;
 let presentExpanded = false;
@@ -762,13 +765,38 @@ function getSavedBoardTitle() {
   }
 }
 
+let storageQuotaWarned = false;
+const STORAGE_LIMIT_BYTES = 5 * 1024 * 1024;
+const STORAGE_WARN_RATIO = 0.85;
+
 function persist() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
+    const payload = JSON.stringify({ version: VERSION, ...state });
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, ...state }));
+      localStorage.setItem(STORAGE_KEY, payload);
+      const ratio = payload.length / STORAGE_LIMIT_BYTES;
+      if (ratio >= STORAGE_WARN_RATIO && !storageQuotaWarned) {
+        storageQuotaWarned = true;
+        showToast(
+          `Board is using ${Math.round(ratio * 100)}% of browser storage — link videos/PDFs online to save space`
+        );
+      } else if (ratio < STORAGE_WARN_RATIO * 0.85) {
+        storageQuotaWarned = false;
+      }
     } catch (err) {
       console.warn('Could not save board to browser storage', err);
+      const looksLikeQuota =
+        err?.name === 'QuotaExceededError' ||
+        err?.code === 22 ||
+        err?.code === 1014 ||
+        /quota/i.test(err?.message || '');
+      if (looksLikeQuota) {
+        showToast(
+          'Browser storage full — embed videos/PDFs by URL instead of uploading to keep saving',
+          { duration: 6000 }
+        );
+      }
     }
   }, 400);
 }
@@ -860,7 +888,7 @@ function render() {
       updateBlockElement(el, block);
     }
     positionBlock(el, block);
-    el.classList.toggle('is-selected', block.id === selectedId);
+    el.classList.toggle('is-selected', block.id === selectedId || selectedIds.has(block.id));
   });
 
   updateEmptyState();
@@ -3020,7 +3048,11 @@ function isMediaEmbedUrl(embedUrl) {
     return (
       h.includes('youtube.com') ||
       h === 'youtube-nocookie.com' ||
-      h === 'player.vimeo.com'
+      h === 'player.vimeo.com' ||
+      h === 'player.twitch.tv' ||
+      h === 'www.loom.com' ||
+      h.endsWith('soundcloud.com') ||
+      h.endsWith('spotify.com')
     );
   } catch {
     return false;
@@ -3033,56 +3065,186 @@ function getLinkEmbedUrl(raw) {
 
   try {
     const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, '');
 
-    if (u.hostname === 'youtu.be') {
+    // --- Video ---
+    if (host === 'youtu.be') {
       const id = u.pathname.replace(/^\//, '').split('/')[0];
       const embed = youtubeEmbedUrl(id);
       if (embed) return embed;
     }
-
-    if (u.hostname.includes('youtube.com') || u.hostname === 'youtube-nocookie.com') {
+    if (host.endsWith('youtube.com') || host === 'youtube-nocookie.com') {
       if (u.pathname === '/watch') {
         const embed = youtubeEmbedUrl(u.searchParams.get('v'));
         if (embed) return embed;
       }
       if (u.pathname.startsWith('/embed/')) {
-        const id = u.pathname.split('/')[2];
-        const embed = youtubeEmbedUrl(id);
+        const embed = youtubeEmbedUrl(u.pathname.split('/')[2]);
         if (embed) return embed;
       }
       if (u.pathname.startsWith('/shorts/')) {
         const embed = youtubeEmbedUrl(u.pathname.split('/')[2]);
         if (embed) return embed;
       }
+      if (u.pathname.startsWith('/playlist') && u.searchParams.get('list')) {
+        return `https://www.youtube-nocookie.com/embed/videoseries?list=${encodeURIComponent(u.searchParams.get('list'))}`;
+      }
     }
-
-    if (u.hostname === 'vimeo.com' || u.hostname === 'www.vimeo.com') {
+    if (host === 'vimeo.com') {
       const id = u.pathname.replace(/^\//, '').split('/')[0];
       if (id && /^\d+$/.test(id)) return `https://player.vimeo.com/video/${id}`;
     }
-
-    if (u.hostname === 'docs.google.com') {
-      if (/\/document\/d\//.test(u.pathname) && url.includes('/edit')) {
-        return url.replace(/\/edit.*$/, '/preview');
-      }
-      if (/\/spreadsheets\/d\//.test(u.pathname) && url.includes('/edit')) {
-        return url.replace(/\/edit.*$/, '/preview');
-      }
-      if (/\/presentation\/d\//.test(u.pathname) && url.includes('/edit')) {
-        return url.replace(/\/edit.*$/, '/embed');
-      }
+    if (host === 'loom.com') {
+      const m = u.pathname.match(/^\/share\/([\w-]+)/) || u.pathname.match(/^\/embed\/([\w-]+)/);
+      if (m) return `https://www.loom.com/embed/${m[1]}`;
+    }
+    if (host === 'twitch.tv') {
+      const parent = location.hostname;
+      const ch = u.pathname.replace(/^\//, '').split('/')[0];
+      if (ch) return `https://player.twitch.tv/?channel=${encodeURIComponent(ch)}&parent=${encodeURIComponent(parent)}`;
+    }
+    if (host === 'ted.com' && u.pathname.startsWith('/talks/')) {
+      const slug = u.pathname.split('/')[2];
+      if (slug) return `https://embed.ted.com/talks/${slug}`;
     }
 
-    if (isGithubPagesHost(u.hostname)) {
-      return url;
+    // --- Google Workspace ---
+    if (host === 'docs.google.com') {
+      if (/\/(document|spreadsheets)\/d\//.test(u.pathname)) {
+        return url.replace(/\/(edit|view|preview)(\?[^#]*)?(#.*)?$/, '/preview');
+      }
+      if (/\/presentation\/d\//.test(u.pathname)) {
+        return url.replace(/\/(edit|view|preview|present)(\?[^#]*)?(#.*)?$/, '/embed');
+      }
+      if (/\/forms\/d\//.test(u.pathname)) {
+        return url.replace(/\/(edit|viewform)(\?[^#]*)?$/, '/viewform') + (url.includes('embedded=true') ? '' : (url.includes('?') ? '&' : '?') + 'embedded=true');
+      }
+    }
+    if (host === 'drive.google.com') {
+      const m = u.pathname.match(/\/file\/d\/([\w-]+)/);
+      if (m) return `https://drive.google.com/file/d/${m[1]}/preview`;
+      if (u.pathname.startsWith('/drive/folders/')) return url;
     }
 
-    // Most sites (ChatGPT, Google search, etc.) block iframes — only embed known platforms above.
-    return null;
+    // --- Design / code / collab ---
+    if (host === 'figma.com') {
+      return `https://www.figma.com/embed?embed_host=prez&url=${encodeURIComponent(url)}`;
+    }
+    if (host === 'miro.com' && u.pathname.startsWith('/app/board/')) {
+      const id = u.pathname.split('/')[3];
+      if (id) return `https://miro.com/app/live-embed/${id}/`;
+    }
+    if (host === 'codepen.io') {
+      const m = u.pathname.match(/^\/([^/]+)\/pen\/([^/]+)/);
+      if (m) return `https://codepen.io/${m[1]}/embed/${m[2]}?default-tab=result`;
+    }
+    if (host === 'codesandbox.io') {
+      const m = u.pathname.match(/^\/s\/([^/?]+)/) || u.pathname.match(/^\/p\/sandbox\/([^/?]+)/);
+      if (m) return `https://codesandbox.io/embed/${m[1]}`;
+    }
+    if (host === 'replit.com') {
+      const m = u.pathname.match(/^\/@([^/]+)\/([^/?]+)/);
+      if (m) return `https://replit.com/@${m[1]}/${m[2]}?embed=true`;
+    }
+    if (host === 'github.com' && u.pathname.includes('/gist/')) return url;
+    if (host === 'gist.github.com') return `${url.split('#')[0]}.pibb`;
+
+    // --- Audio ---
+    if (host === 'open.spotify.com') {
+      const m = u.pathname.match(/^\/(track|album|playlist|episode|show)\/([\w-]+)/);
+      if (m) return `https://open.spotify.com/embed/${m[1]}/${m[2]}`;
+    }
+    if (host === 'soundcloud.com') {
+      return `https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&color=%23ff5500&auto_play=false&hide_related=false&show_comments=true&show_user=true&show_reposts=false&show_teaser=true`;
+    }
+
+    // --- Education / classroom ---
+    if (host === 'padlet.com') {
+      return url.includes('/embed/') ? url : url.replace(/\/([^/]+)$/, '/embed/$1');
+    }
+    if (host === 'quizlet.com') {
+      const m = u.pathname.match(/^\/(\d+)/);
+      if (m) return `https://quizlet.com/${m[1]}/flashcards/embed`;
+    }
+    if (host === 'mentimeter.com' || host === 'menti.com') {
+      const code = u.pathname.replace(/^\//, '').split('/')[0];
+      if (code) return `https://www.mentimeter.com/embed/${code}`;
+    }
+    if (host === 'wordwall.net') {
+      const m = u.pathname.match(/^\/resource\/(\d+)/) || u.pathname.match(/^\/embed\/(\d+)/);
+      if (m) return `https://wordwall.net/embed/${m[1]}`;
+    }
+    if (host === 'thinglink.com') {
+      const m = u.pathname.match(/scene\/(\d+)/) || u.pathname.match(/\/(\d+)$/);
+      if (m) return `https://www.thinglink.com/card/${m[1]}`;
+    }
+    if (host === 'slideshare.net') {
+      return url; // SlideShare embeds via its standard URL when allowed
+    }
+    if (host === 'genially.com' || host === 'view.genial.ly') return url;
+    if (host === 'canva.com') {
+      const m = u.pathname.match(/\/design\/([\w-]+)/);
+      if (m) return `https://www.canva.com/design/${m[1]}/view?embed`;
+    }
+
+    // --- Reference / knowledge (most allow embedding) ---
+    if (host.endsWith('wikipedia.org')) return url;
+    if (host === 'khanacademy.org' || host.endsWith('.khanacademy.org')) return url;
+    if (host === 'desmos.com') {
+      const m = u.pathname.match(/\/calculator\/([\w-]+)/);
+      if (m) return `https://www.desmos.com/calculator/${m[1]}?embed`;
+    }
+    if (host === 'geogebra.org') {
+      const m = u.pathname.match(/\/m\/([\w-]+)/);
+      if (m) return `https://www.geogebra.org/material/iframe/id/${m[1]}`;
+    }
+
+    // --- Plain PDFs ---
+    if (/\.pdf(\?|$)/i.test(u.pathname + u.search)) return url;
+
+    if (isGithubPagesHost(u.hostname)) return url;
+
+    // Known iframe blockers — show the friendly fallback card rather than a
+    // mystery blank rectangle.
+    if (KNOWN_NON_EMBEDDABLE_HOSTS.some((h) => host === h || host.endsWith('.' + h))) return null;
+
+    // Unknown site: attempt embed by default so educators get a preview when
+    // possible. Sites with X-Frame-Options will appear blank — users can still
+    // open in a new tab via the always-visible button below the embed.
+    return url;
   } catch {
     return null;
   }
 }
+
+const KNOWN_NON_EMBEDDABLE_HOSTS = [
+  'chatgpt.com',
+  'chat.openai.com',
+  'claude.ai',
+  'gemini.google.com',
+  'bard.google.com',
+  'google.com',
+  'bing.com',
+  'duckduckgo.com',
+  'twitter.com',
+  'x.com',
+  'facebook.com',
+  'instagram.com',
+  'linkedin.com',
+  'amazon.com',
+  'reddit.com',
+  'pinterest.com',
+  'tiktok.com',
+  'apple.com',
+  'microsoft.com',
+  'office.com',
+  'live.com',
+  'outlook.com',
+  'github.com',
+  'stackoverflow.com',
+  'medium.com',
+  'notion.so',
+];
 
 function getLinkHostname(openUrl) {
   try {
@@ -3985,12 +4147,14 @@ function bindBlockEvents(el, block) {
 
     if (e.target.closest('.table-col-resize') || tableColResizeState) return;
 
+    const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+
     if (
       e.target.closest(
         'input, textarea, [contenteditable], label, a, .block-footer-btn, .block-footer-segment-btn, .doc-upload-btn, .block-poll, .block-quiz, .worldmap-pin, .gallery-station-btn'
       )
     ) {
-      if (selectedId !== block.id) selectBlock(block.id);
+      if (selectedId !== block.id && !additive) selectBlock(block.id);
       return;
     }
 
@@ -3999,7 +4163,7 @@ function bindBlockEvents(el, block) {
       return;
     }
 
-    selectBlock(block.id);
+    selectBlock(block.id, additive ? { toggle: true } : {});
 
     if (e.target.closest('.btn-present-block') || e.target.closest('[data-action="present"]')) {
       openPresent(block.id);
@@ -4228,6 +4392,8 @@ function cascadeLayoutAfterDrop(dropped, gap = LAYOUT_GAP) {
     }
   }
 
+  pushOverlappingRowsBelow(dropped, allRows, rowIdx, g);
+
   const rowBlocks = row.blocks.slice().sort((a, b) => a.x - b.x);
   rowBlocks.forEach((b, i) => {
     b.z = i + 1;
@@ -4240,6 +4406,37 @@ function cascadeLayoutAfterDrop(dropped, gap = LAYOUT_GAP) {
     sorted.forEach((b) => {
       b.z = z++;
     });
+  }
+}
+
+/** Cross-row push: when a dropped (often tall) card still extends into rows
+ * below after the in-row cascade, push those rows down until they clear. */
+function pushOverlappingRowsBelow(dropped, allRows, rowIdx, gap) {
+  const droppedRect = blockEdges(dropped);
+  let i = rowIdx + 1;
+  while (i < allRows.length) {
+    const r = allRows[i];
+    if (r.y >= droppedRect.bottom + gap) break;
+    const hits = r.blocks.some(
+      (b) => b.id !== dropped.id && hotRectOverlapsBlock(droppedRect, b, 0)
+    );
+    if (!hits) {
+      i += 1;
+      continue;
+    }
+    const shift = droppedRect.bottom + gap - r.y;
+    if (shift <= 0) {
+      i += 1;
+      continue;
+    }
+    for (let j = i; j < allRows.length; j++) {
+      allRows[j].blocks.forEach((b) => {
+        b.y += shift;
+      });
+      allRows[j].y += shift;
+      allRows[j].bottom += shift;
+    }
+    i += 1;
   }
 }
 
@@ -4314,11 +4511,41 @@ function blockOverlapsAnyOther(block) {
   );
 }
 
+function blockOverlapsAnyNotIn(block, excludeIds) {
+  const rect = blockEdges(block);
+  return state.blocks.some(
+    (other) => !excludeIds.has(other.id) && hotRectOverlapsBlock(rect, other, 0)
+  );
+}
+
+function finishGroupDragPlacement(primary, group) {
+  const ids = new Set([primary.id, ...group.map((g) => g.id)]);
+  const movers = [primary, ...group.map((g) => g.block)];
+  if (movers.some((b) => blockOverlapsAnyNotIn(b, ids))) {
+    movers.forEach((b) => pushBlocksAsideFrom(b));
+  }
+  syncAllBlockPositions();
+}
+
+const DRAG_AUTOSCROLL_EDGE = 60;
+const DRAG_AUTOSCROLL_MAX = 22;
+
 function startDrag(e, block, el) {
   if (e.button !== 0) return;
   e.preventDefault();
-  selectBlock(block.id);
+  const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+  if (!isBlockSelected(block.id) && !additive) selectBlock(block.id);
+  else if (!isBlockSelected(block.id) && additive) selectBlock(block.id, { additive: true });
   bringToFront(block.id);
+
+  const groupIds = getSelectedBlockIds().filter((id) => id !== block.id);
+  const group = groupIds
+    .map((id) => {
+      const b = getBlock(id);
+      if (!b) return null;
+      return { id: b.id, block: b, el: $(`[data-block-id="${b.id}"]`, canvasInner), origX: b.x, origY: b.y };
+    })
+    .filter(Boolean);
 
   dragState = {
     id: block.id,
@@ -4327,18 +4554,113 @@ function startDrag(e, block, el) {
     startY: e.clientY,
     origX: block.x,
     origY: block.y,
+    origScrollLeft: canvasWrap?.scrollLeft || 0,
+    origScrollTop: canvasWrap?.scrollTop || 0,
+    pointerX: e.clientX,
+    pointerY: e.clientY,
+    shiftKey: e.shiftKey,
     moved: false,
     undoPushed: false,
     swapHoverId: null,
     swapTargetId: null,
     swapReady: false,
     swapTimer: null,
+    autoscrollFrame: null,
+    group,
   };
 
   el.classList.add('is-dragging');
+  group.forEach((g) => g.el?.classList.add('is-dragging'));
   el.setPointerCapture(e.pointerId);
 
+  const isGroup = dragState.group.length > 0;
+
+  const applyDragPosition = () => {
+    if (!dragState) return;
+    const scrollDX = (canvasWrap?.scrollLeft || 0) - dragState.origScrollLeft;
+    const scrollDY = (canvasWrap?.scrollTop || 0) - dragState.origScrollTop;
+    const dx = dragState.pointerX - dragState.startX + scrollDX;
+    const dy = dragState.pointerY - dragState.startY + scrollDY;
+    const rawX = Math.max(0, dragState.origX + dx);
+    const rawY = Math.max(0, dragState.origY + dy);
+    let appliedDX;
+    let appliedDY;
+    if (dragState.shiftKey || isGroup) {
+      block.x = rawX;
+      block.y = rawY;
+      positionBlock(el, block);
+      clearSnapGuides();
+      appliedDX = block.x - dragState.origX;
+      appliedDY = block.y - dragState.origY;
+    } else {
+      const snapped = snapDragPosition(block, rawX, rawY);
+      block.x = snapped.x;
+      block.y = snapped.y;
+      positionBlock(el, block);
+      showSnapGuides(snapped.vGuides, snapped.hGuides);
+      appliedDX = block.x - dragState.origX;
+      appliedDY = block.y - dragState.origY;
+    }
+    if (isGroup) {
+      dragState.group.forEach((g) => {
+        g.block.x = Math.max(0, g.origX + appliedDX);
+        g.block.y = Math.max(0, g.origY + appliedDY);
+        if (g.el) positionBlock(g.el, g.block);
+      });
+    }
+    if (!isGroup) updateDragSwapHints(block);
+  };
+
+  const stopAutoscroll = () => {
+    if (dragState?.autoscrollFrame) {
+      cancelAnimationFrame(dragState.autoscrollFrame);
+      dragState.autoscrollFrame = null;
+    }
+  };
+
+  const autoscrollTick = () => {
+    if (!dragState || !canvasWrap) {
+      stopAutoscroll();
+      return;
+    }
+    const rect = canvasWrap.getBoundingClientRect();
+    const x = dragState.pointerX;
+    const y = dragState.pointerY;
+    let dx = 0;
+    let dy = 0;
+    const edge = DRAG_AUTOSCROLL_EDGE;
+    if (x < rect.left + edge) dx = -Math.ceil(((rect.left + edge - x) / edge) * DRAG_AUTOSCROLL_MAX);
+    else if (x > rect.right - edge) dx = Math.ceil(((x - (rect.right - edge)) / edge) * DRAG_AUTOSCROLL_MAX);
+    if (y < rect.top + edge) dy = -Math.ceil(((rect.top + edge - y) / edge) * DRAG_AUTOSCROLL_MAX);
+    else if (y > rect.bottom - edge) dy = Math.ceil(((y - (rect.bottom - edge)) / edge) * DRAG_AUTOSCROLL_MAX);
+
+    if (dx === 0 && dy === 0) {
+      stopAutoscroll();
+      return;
+    }
+
+    const beforeL = canvasWrap.scrollLeft;
+    const beforeT = canvasWrap.scrollTop;
+    if (dy > 0) ensureCanvasHasRoomBelow(beforeT + rect.height + dy + 200);
+    if (dx > 0) ensureCanvasHasRoomRight(beforeL + rect.width + dx + 200);
+    canvasWrap.scrollLeft = Math.max(0, beforeL + dx);
+    canvasWrap.scrollTop = Math.max(0, beforeT + dy);
+    if (canvasWrap.scrollLeft !== beforeL || canvasWrap.scrollTop !== beforeT) {
+      applyDragPosition();
+    }
+    dragState.autoscrollFrame = requestAnimationFrame(autoscrollTick);
+  };
+
+  const maybeStartAutoscroll = () => {
+    if (!dragState || dragState.autoscrollFrame || !canvasWrap) return;
+    dragState.autoscrollFrame = requestAnimationFrame(autoscrollTick);
+  };
+
   const onMove = (ev) => {
+    if (!dragState) return;
+    dragState.pointerX = ev.clientX;
+    dragState.pointerY = ev.clientY;
+    dragState.shiftKey = ev.shiftKey;
     const dx = ev.clientX - dragState.startX;
     const dy = ev.clientY - dragState.startY;
     if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
@@ -4348,30 +4670,21 @@ function startDrag(e, block, el) {
       }
       dragState.moved = true;
     }
-
-    const rawX = Math.max(0, dragState.origX + dx);
-    const rawY = Math.max(0, dragState.origY + dy);
-    if (ev.shiftKey) {
-      block.x = rawX;
-      block.y = rawY;
-      positionBlock(el, block);
-      clearSnapGuides();
-      updateDragSwapHints(block);
-    } else {
-      const snapped = snapDragPosition(block, rawX, rawY);
-      block.x = snapped.x;
-      block.y = snapped.y;
-      positionBlock(el, block);
-      showSnapGuides(snapped.vGuides, snapped.hGuides);
-      updateDragSwapHints(block);
-    }
+    applyDragPosition();
+    maybeStartAutoscroll();
   };
 
   const onUp = (ev) => {
+    stopAutoscroll();
     el.classList.remove('is-dragging');
+    dragState?.group.forEach((g) => g.el?.classList.remove('is-dragging'));
     clearSnapGuides();
     if (dragState?.moved) {
-      finishDragPlacement(block);
+      if (dragState.group.length > 0) {
+        finishGroupDragPlacement(block, dragState.group);
+      } else {
+        finishDragPlacement(block);
+      }
       resizeCanvasToContent();
       state.layoutMode = null;
       setLayoutSelectValue('free');
@@ -4390,6 +4703,22 @@ function startDrag(e, block, el) {
   el.addEventListener('pointermove', onMove);
   el.addEventListener('pointerup', onUp);
   el.addEventListener('pointercancel', onUp);
+}
+
+function ensureCanvasHasRoomBelow(neededPx) {
+  if (!canvasInner) return;
+  const current = parseFloat(canvasInner.style.minHeight) || canvasInner.clientHeight || 0;
+  if (neededPx > current) {
+    canvasInner.style.minHeight = `${Math.ceil(neededPx)}px`;
+  }
+}
+
+function ensureCanvasHasRoomRight(neededPx) {
+  if (!canvasInner) return;
+  const current = parseFloat(canvasInner.style.minWidth) || canvasInner.clientWidth || 0;
+  if (neededPx > current) {
+    canvasInner.style.minWidth = `${Math.ceil(neededPx)}px`;
+  }
 }
 
 function startResize(e, block, el, direction) {
@@ -4439,20 +4768,179 @@ function startResize(e, block, el, direction) {
 }
 
 function clearBlockSelection() {
-  if (!selectedId) return;
-  $(`[data-block-id="${selectedId}"]`, canvasInner)?.classList.remove('is-selected');
+  if (!selectedId && selectedIds.size === 0) return;
+  if (selectedId) {
+    $(`[data-block-id="${selectedId}"]`, canvasInner)?.classList.remove('is-selected');
+  }
+  selectedIds.forEach((id) => {
+    $(`[data-block-id="${id}"]`, canvasInner)?.classList.remove('is-selected');
+  });
+  selectedIds.clear();
   selectedId = null;
   updateAlignToolbar();
 }
 
-function selectBlock(id) {
+function getSelectedBlockIds() {
+  if (selectedIds.size > 0) return [...selectedIds];
+  if (selectedId) return [selectedId];
+  return [];
+}
+
+function isBlockSelected(id) {
+  return id === selectedId || selectedIds.has(id);
+}
+
+function initMarqueeSelect() {
+  if (!canvas || !canvasInner) return;
+
+  const onPointerDown = (e) => {
+    if (e.button !== 0) return;
+    if (e.target.closest('.block')) return;
+    if (e.target.closest('.canvas-empty')) return;
+    if (e.target.closest('.fab, .toolbar, dialog, [contenteditable], input, textarea, a, button')) return;
+    if (e.target !== canvas && e.target !== canvasInner) return;
+
+    const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+    const startClientX = e.clientX;
+    const startClientY = e.clientY;
+    const wrapRect = canvasWrap.getBoundingClientRect();
+    const innerRect = canvasInner.getBoundingClientRect();
+    const startBoardX = startClientX - innerRect.left;
+    const startBoardY = startClientY - innerRect.top;
+
+    let rectEl = $('#marqueeRect', canvasInner);
+    if (!rectEl) {
+      rectEl = document.createElement('div');
+      rectEl.id = 'marqueeRect';
+      rectEl.className = 'marquee-rect';
+      canvasInner.appendChild(rectEl);
+    }
+    rectEl.hidden = false;
+    rectEl.style.left = `${startBoardX}px`;
+    rectEl.style.top = `${startBoardY}px`;
+    rectEl.style.width = '0px';
+    rectEl.style.height = '0px';
+
+    if (!additive) clearBlockSelection();
+
+    marqueeState = {
+      active: false,
+      startClientX,
+      startClientY,
+      startBoardX,
+      startBoardY,
+      additive,
+      rectEl,
+      initialSelected: new Set([...selectedIds]),
+      initialSelectedId: selectedId,
+    };
+
+    const onMove = (ev) => {
+      if (!marqueeState) return;
+      const dx = ev.clientX - marqueeState.startClientX;
+      const dy = ev.clientY - marqueeState.startClientY;
+      if (!marqueeState.active && Math.hypot(dx, dy) < 4) return;
+      marqueeState.active = true;
+      const curBoardX = ev.clientX - canvasInner.getBoundingClientRect().left;
+      const curBoardY = ev.clientY - canvasInner.getBoundingClientRect().top;
+      const x = Math.min(marqueeState.startBoardX, curBoardX);
+      const y = Math.min(marqueeState.startBoardY, curBoardY);
+      const w = Math.abs(curBoardX - marqueeState.startBoardX);
+      const h = Math.abs(curBoardY - marqueeState.startBoardY);
+      rectEl.style.left = `${x}px`;
+      rectEl.style.top = `${y}px`;
+      rectEl.style.width = `${w}px`;
+      rectEl.style.height = `${h}px`;
+      const marqueeRect = { x, y, w, h };
+      applyMarqueeSelection(marqueeRect, marqueeState.additive, marqueeState.initialSelected, marqueeState.initialSelectedId);
+    };
+
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      if (rectEl) rectEl.hidden = true;
+      const wasActive = marqueeState?.active;
+      if (marqueeState && !wasActive && !additive) {
+        clearBlockSelection();
+      }
+      if (wasActive) {
+        marqueeJustEndedAt = Date.now();
+      }
+      marqueeState = null;
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  };
+
+  canvas.addEventListener('pointerdown', onPointerDown);
+}
+
+function applyMarqueeSelection(rect, additive, baseSet, basePrimary) {
+  const ids = new Set(additive ? baseSet : []);
+  state.blocks.forEach((b) => {
+    if (
+      b.x < rect.x + rect.w &&
+      b.x + b.w > rect.x &&
+      b.y < rect.y + rect.h &&
+      b.y + b.h > rect.y
+    ) {
+      ids.add(b.id);
+    }
+  });
+  selectedIds.clear();
+  ids.forEach((id) => selectedIds.add(id));
+  selectedId = ids.size ? (additive && basePrimary && ids.has(basePrimary) ? basePrimary : [...ids].pop()) : null;
+  state.blocks.forEach((b) => {
+    const el = $(`[data-block-id="${b.id}"]`, canvasInner);
+    if (el) el.classList.toggle('is-selected', ids.has(b.id));
+  });
+  updateAlignToolbar();
+}
+
+function selectAllBlocks() {
+  if (state.blocks.length === 0) return;
+  clearBlockSelection();
+  state.blocks.forEach((b) => {
+    selectedIds.add(b.id);
+    $(`[data-block-id="${b.id}"]`, canvasInner)?.classList.add('is-selected');
+  });
+  selectedId = state.blocks[state.blocks.length - 1].id;
+  updateAlignToolbar();
+}
+
+function selectBlock(id, opts = {}) {
+  const { additive = false, toggle = false } = opts;
   const prev = selectedId;
+
+  if (additive || toggle) {
+    if (toggle && selectedIds.has(id)) {
+      selectedIds.delete(id);
+      $(`[data-block-id="${id}"]`, canvasInner)?.classList.remove('is-selected');
+      if (selectedId === id) {
+        selectedId = selectedIds.size ? [...selectedIds].pop() : null;
+      }
+      updateAlignToolbar();
+      return;
+    }
+    if (prev && prev !== id) selectedIds.add(prev);
+    selectedIds.add(id);
+  } else {
+    selectedIds.forEach((sid) => {
+      if (sid !== id) {
+        $(`[data-block-id="${sid}"]`, canvasInner)?.classList.remove('is-selected');
+      }
+    });
+    selectedIds.clear();
+    if (prev && prev !== id) {
+      $(`[data-block-id="${prev}"]`, canvasInner)?.classList.remove('is-selected');
+    }
+  }
+
   selectedId = id;
   bringToFront(id);
-
-  if (prev && prev !== id) {
-    $(`[data-block-id="${prev}"]`, canvasInner)?.classList.remove('is-selected');
-  }
 
   const el = $(`[data-block-id="${id}"]`, canvasInner);
   const block = getBlock(id);
@@ -7738,6 +8226,7 @@ function deleteBlock(id) {
   state.blocks = state.blocks.filter((b) => b.id !== id);
   removeFromPresentOrder(id);
   if (selectedId === id) selectedId = null;
+  selectedIds.delete(id);
   if (state.boardTemplate === 'assessment-collaborator' && removed.assessmentStage) {
     getAssessmentStages(state.blocks).forEach((b, i) => {
       b.assessmentStageIndex = i;
@@ -9923,12 +10412,12 @@ function escapeAttr(str) {
   return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
 
-function showToast(msg) {
+function showToast(msg, { duration = 2400 } = {}) {
   if (!toast) return;
   toast.textContent = msg;
   toast.classList.add('is-visible');
   clearTimeout(showToast._t);
-  showToast._t = setTimeout(() => toast.classList.remove('is-visible'), 2400);
+  showToast._t = setTimeout(() => toast.classList.remove('is-visible'), duration);
 }
 
 // --- Init UI ---
@@ -10178,6 +10667,7 @@ function init() {
   hideAllOverlays();
   syncKeyboardShortcutsHint();
   bindToolbar();
+  initMarqueeSelect();
 
   try {
     initBackgroundPicker();
@@ -10301,8 +10791,15 @@ function init() {
       e.preventDefault();
       undoLayout();
     }
-    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId && !e.target.matches('input, [contenteditable]')) {
-      deleteBlock(selectedId);
+    if ((e.key === 'Delete' || e.key === 'Backspace') && !e.target.matches('input, [contenteditable]')) {
+      const ids = getSelectedBlockIds();
+      if (ids.length > 0) {
+        ids.forEach((id) => deleteBlock(id));
+      }
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'a' && !e.target.matches('input, [contenteditable]')) {
+      e.preventDefault();
+      selectAllBlocks();
     }
   });
 
@@ -10322,7 +10819,8 @@ function init() {
       !e.target.closest('.fab') &&
       !e.target.closest('dialog') &&
       !e.target.closest('.toolbar-timer') &&
-      !e.target.closest('#timerFloat')
+      !e.target.closest('#timerFloat') &&
+      Date.now() - marqueeJustEndedAt > 200
     ) {
       clearBlockSelection();
     }
