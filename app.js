@@ -405,6 +405,7 @@ let presentWhiteboardMounted = false;
 
 const BLANK_DRAW_UNDO_MAX = 24;
 let outlineDragId = null;
+let outlineDragIds = [];
 
 const PRESENT_EXPAND_ICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l16-16M20 4h-6M20 4v6"/></svg>`;
 const PRESENT_RESTORE_ICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 15L4 20M4 20h5M4 20v-5M15 9l5-5M20 4h-5M20 4v5"/></svg>`;
@@ -9398,28 +9399,46 @@ function renderOutline() {
 
     li.addEventListener('dragstart', (e) => {
       outlineDragId = id;
-      li.classList.add('is-dragging');
+      const inMulti = selectedIds.has(id) && selectedIds.size > 1;
+      outlineDragIds = inMulti
+        ? state.presentOrder.filter((pid) => selectedIds.has(pid))
+        : [id];
+      outlineDragIds.forEach((pid) => {
+        $(`.outline-item[data-block-id="${pid}"]`)?.classList.add('is-dragging');
+      });
       e.dataTransfer.effectAllowed = 'move';
+      try {
+        e.dataTransfer.setData('text/plain', outlineDragIds.join(','));
+      } catch (_) {}
     });
     li.addEventListener('dragend', () => {
       outlineDragId = null;
-      li.classList.remove('is-dragging');
+      outlineDragIds = [];
+      $$('.outline-item.is-dragging').forEach((el) => el.classList.remove('is-dragging'));
+      clearOutlineDropIndicator();
     });
     li.addEventListener('dragover', (e) => {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
+      const rect = li.getBoundingClientRect();
+      const before = (e.clientY - rect.top) < rect.height / 2;
+      showOutlineDropIndicator(li, before);
+    });
+    li.addEventListener('dragleave', (e) => {
+      if (!li.contains(e.relatedTarget)) {
+        li.classList.remove('is-drop-above', 'is-drop-below');
+      }
     });
     li.addEventListener('drop', (e) => {
       e.preventDefault();
       const targetId = li.dataset.blockId;
-      if (!outlineDragId || outlineDragId === targetId) return;
-      const from = state.presentOrder.indexOf(outlineDragId);
-      const to = state.presentOrder.indexOf(targetId);
-      if (from < 0 || to < 0) return;
-      state.presentOrder.splice(from, 1);
-      state.presentOrder.splice(to, 0, outlineDragId);
-      persist();
-      renderOutline();
+      const movingIds = outlineDragIds.length ? outlineDragIds : (outlineDragId ? [outlineDragId] : []);
+      clearOutlineDropIndicator();
+      if (!movingIds.length) return;
+      if (movingIds.includes(targetId)) return;
+      const rect = li.getBoundingClientRect();
+      const before = (e.clientY - rect.top) < rect.height / 2;
+      reorderOutlineGroup(movingIds, targetId, before);
     });
 
     list.appendChild(li);
@@ -9428,6 +9447,34 @@ function renderOutline() {
 
 function initOutlineUI() {
   $('#outlineClose')?.addEventListener('click', closeOutline);
+}
+
+function showOutlineDropIndicator(targetLi, before) {
+  $$('.outline-item.is-drop-above, .outline-item.is-drop-below').forEach((el) => {
+    if (el !== targetLi) el.classList.remove('is-drop-above', 'is-drop-below');
+  });
+  targetLi.classList.toggle('is-drop-above', before);
+  targetLi.classList.toggle('is-drop-below', !before);
+}
+
+function clearOutlineDropIndicator() {
+  $$('.outline-item.is-drop-above, .outline-item.is-drop-below').forEach((el) => {
+    el.classList.remove('is-drop-above', 'is-drop-below');
+  });
+}
+
+function reorderOutlineGroup(movingIds, targetId, before) {
+  const order = state.presentOrder.slice();
+  const moving = movingIds.filter((id) => order.includes(id));
+  if (!moving.length) return;
+  const remaining = order.filter((id) => !moving.includes(id));
+  let insertAt = remaining.indexOf(targetId);
+  if (insertAt < 0) return;
+  if (!before) insertAt += 1;
+  remaining.splice(insertAt, 0, ...moving);
+  state.presentOrder = remaining;
+  persist();
+  renderOutline();
 }
 
 // --- Align ---
