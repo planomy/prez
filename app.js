@@ -9256,7 +9256,13 @@ function renderOutline() {
     const block = getBlock(id);
     if (!block) return;
     const li = document.createElement('li');
-    li.className = 'outline-item' + (isBlockSelected(id) ? ' is-selected' : '');
+    const multi = selectedIds.size > 1;
+    const sel = isBlockSelected(id);
+    let cls = 'outline-item';
+    if (sel) cls += ' is-selected';
+    if (multi && sel) cls += ' is-multi-selected';
+    if (multi && id === selectedId) cls += ' is-primary-selected';
+    li.className = cls;
     li.dataset.blockId = id;
     li.draggable = true;
     li.innerHTML = `<span class="outline-item-num">${i + 1}</span>
@@ -9273,9 +9279,21 @@ function renderOutline() {
       deleteBlock(id);
     });
 
-    li.addEventListener('click', (e) => {
+    li.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      if (e.target.closest('.outline-item-remove')) return;
       const additive = e.shiftKey || e.metaKey || e.ctrlKey;
-      selectBlock(id, additive ? { toggle: true } : {});
+      if (additive) {
+        e.preventDefault();
+        selectBlock(id, { toggle: true });
+        renderOutline();
+      }
+    });
+    li.addEventListener('click', (e) => {
+      if (e.target.closest('.outline-item-remove')) return;
+      const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+      if (additive) return;
+      selectBlock(id);
       renderOutline();
     });
     li.addEventListener('dblclick', () => openPresent(id));
