@@ -5777,6 +5777,77 @@ body.blank-open .hint {
   cursor: cell;
 }
 
+.blank-canvas.blank-canvas--lasso {
+  cursor: crosshair;
+}
+
+.blank-canvas.blank-canvas--lasso-move {
+  cursor: move;
+}
+
+.blank-canvas-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  pointer-events: none;
+  background: transparent;
+}
+
+.blank-draw-page-nav {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(15, 20, 25, 0.72);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+}
+
+.blank-draw-page-btn {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: #f4f6f8;
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.blank-draw-page-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.blank-draw-page-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.blank-draw-page-label {
+  min-width: 3.5rem;
+  text-align: center;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: rgba(244, 246, 248, 0.85);
+  user-select: none;
+}
+
+.blank-lasso-action[hidden] {
+  display: none !important;
+}
+
 .blank-draw-paper {
   display: flex;
   gap: 4px;

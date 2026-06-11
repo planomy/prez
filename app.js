@@ -210,6 +210,8 @@ const DEFAULTS = {
   presentOrder: null,
   blankContent: '',
   blankDraw: null,
+  blankDrawPages: null,
+  blankDrawPage: 0,
   blankPaper: 'plain',
   blankPaperStep: BLANK_PAPER_STEP_DEFAULT,
   timerSeconds: 300,
@@ -387,19 +389,30 @@ let presentMapRevealBlockId = null;
 let presentMapPinCount = 1;
 let timerTickInterval = null;
 let blankDrawCtx = null;
+let blankDrawOverlayCtx = null;
 let blankDrawing = false;
 let blankBlockId = null;
 let blankDrawTool = 'pen';
 let blankDrawColor = BLANK_DRAW_DEFAULT_COLOR;
 let blankDrawSize = 'm';
 const blankDrawUndoStack = [];
-let blankStrokeBefore = null;
-let blankStrokeMoved = false;
 let blankDrawUndoBusy = false;
 /** Block id (or null for tools blank) that the canvas pixel buffer belongs to. */
 let blankCanvasOwnerId = null;
 /** True after the user changes the drawing (skip save on close if still false). */
 let blankDrawDirty = false;
+let blankDrawPageIndex = 0;
+let blankPageBackground = null;
+let blankPageStrokes = [];
+let blankBackgroundImage = null;
+let blankBackgroundImageSrc = null;
+let blankCurrentStrokePoints = null;
+let blankEraserRemoved = false;
+let blankPenUndoPending = false;
+let blankLassoPath = [];
+let blankLassoSelecting = false;
+let blankSelectedStrokeIndices = new Set();
+let blankLassoDrag = null;
 /** Whiteboard workspace mounted inside Present (type / table / draw). */
 let presentWhiteboardMounted = false;
 
@@ -658,12 +671,16 @@ function normalizeBoardState(data) {
     if (b.type === 'table') normalizeTableColAligns(b);
     if (b.type === 'whiteboard' && !b.blankDraw) b.blankDraw = null;
     else if (b.type === 'whiteboard' && b.blankDraw === '') b.blankDraw = null;
-    if (b.type === 'whiteboard') normalizeBlankPaperFields(b);
+    if (b.type === 'whiteboard') {
+      normalizeBlankPaperFields(b);
+      normalizeBlankDrawPages(b);
+    }
   });
   merged.presentOrder = order;
   merged.blankContent = merged.blankContent || '';
   merged.blankDraw = merged.blankDraw || null;
   normalizeBlankPaperFields(merged);
+  normalizeBlankDrawPages(merged);
   merged.timerSeconds = merged.timerSeconds || 300;
   merged.mindMapCenterId = merged.mindMapCenterId || null;
   if (merged.mindMapCenterId && !ids.has(merged.mindMapCenterId)) {
@@ -2178,8 +2195,7 @@ function hidePresentWhiteboard() {
   blankBlockId = null;
   blankCanvasOwnerId = null;
   blankDrawUndoStack.length = 0;
-  blankStrokeBefore = null;
-  blankStrokeMoved = false;
+  clearBlankLassoSelection();
   syncBlankDrawUndoBtn();
   presentWhiteboardMounted = false;
 }
@@ -2199,10 +2215,7 @@ function mountPresentWhiteboard(block) {
   blankBlockId = block.id;
   blankCanvasOwnerId = block.id;
   blankDrawDirty = false;
-  blankDrawUndoStack.length = 0;
-  blankStrokeBefore = null;
-  blankStrokeMoved = false;
-  syncBlankDrawUndoBtn();
+  initBlankDrawPageState();
 
   present.appendChild(overlay);
   overlay.hidden = false;
@@ -2217,7 +2230,7 @@ function mountPresentWhiteboard(block) {
   ensureBlankTableControls(editor);
   cleanBlankEditorDom(editor);
   normalizeBlankEditorStructure(editor);
-  setBlankTab(block.blankDraw && !(block.blankContent || '').trim() ? 'draw' : 'type');
+  setBlankTab(hasBlankDrawContent(block) && !(block.blankContent || '').trim() ? 'draw' : 'type');
   syncBlankPaperLayer();
   syncBlankDrawToolbar();
   syncBlankDrawColorForPaper();
@@ -2467,7 +2480,7 @@ function syncBlockFooter(el, block) {
 }
 
 function isWhiteboardCardEmpty(block) {
-  if (block.blankDraw) return false;
+  if (block.blankDraw || hasBlankDrawContent(block)) return false;
   const html = (block.blankContent || '').trim();
   if (!html) return true;
   if (blankHtmlToPlainText(html)) return false;
@@ -2538,24 +2551,490 @@ function setBlankContent(html) {
   persist();
 }
 
-function getBlankDraw() {
-  if (blankBlockId) {
-    const b = getBlock(blankBlockId);
-    return b?.blankDraw || null;
+function getBlankDrawStoreTarget() {
+  if (blankBlockId) return getBlock(blankBlockId);
+  return state;
+}
+
+function createEmptyBlankDrawPage() {
+  return { background: null, strokes: [] };
+}
+
+function cloneBlankDrawStroke(stroke) {
+  return {
+    tool: 'pen',
+    color: stroke.color || BLANK_DRAW_DEFAULT_COLOR,
+    size: BLANK_DRAW_WIDTHS[stroke.size] ? stroke.size : 'm',
+    points: (stroke.points || []).map((p) => ({ x: p.x, y: p.y })),
+  };
+}
+
+function cloneBlankDrawPage(page) {
+  if (!page) return createEmptyBlankDrawPage();
+  return {
+    background: page.background || null,
+    strokes: (page.strokes || []).map(cloneBlankDrawStroke),
+  };
+}
+
+function normalizeBlankDrawPages(target) {
+  if (!target) return;
+  if (!Array.isArray(target.blankDrawPages)) {
+    target.blankDrawPages = target.blankDraw
+      ? [{ background: target.blankDraw, strokes: [] }]
+      : [createEmptyBlankDrawPage()];
   }
-  return state.blankDraw || null;
+  if (!target.blankDrawPages.length) target.blankDrawPages = [createEmptyBlankDrawPage()];
+  target.blankDrawPages = target.blankDrawPages.map((page) => {
+    if (typeof page === 'string') return { background: page, strokes: [] };
+    return {
+      background: page?.background || null,
+      strokes: Array.isArray(page?.strokes) ? page.strokes.map(cloneBlankDrawStroke) : [],
+    };
+  });
+  const max = target.blankDrawPages.length - 1;
+  const idx = typeof target.blankDrawPage === 'number' ? Math.round(target.blankDrawPage) : 0;
+  target.blankDrawPage = Math.max(0, Math.min(max, idx));
+}
+
+function blankDrawPageHasInk(page) {
+  return !!(page?.background || (page?.strokes && page.strokes.length));
+}
+
+function hasBlankDrawContent(target) {
+  if (!target) return false;
+  normalizeBlankDrawPages(target);
+  return target.blankDrawPages.some(blankDrawPageHasInk);
+}
+
+function getBlankDraw() {
+  const target = getBlankDrawStoreTarget();
+  return target?.blankDraw || null;
 }
 
 function setBlankDraw(dataUrl) {
+  const target = getBlankDrawStoreTarget();
+  if (!target) return;
+  target.blankDraw = dataUrl;
   if (blankBlockId) {
     const b = getBlock(blankBlockId);
-    if (!b) return;
-    b.blankDraw = dataUrl;
-    if (b.type === 'whiteboard') updateWhiteboardPreview(b);
-  } else {
-    state.blankDraw = dataUrl;
+    if (b?.type === 'whiteboard') updateWhiteboardPreview(b);
   }
   persist();
+}
+
+function flushBlankDrawPageToStore() {
+  const target = getBlankDrawStoreTarget();
+  if (!target) return;
+  normalizeBlankDrawPages(target);
+  target.blankDrawPages[blankDrawPageIndex] = {
+    background: blankPageBackground,
+    strokes: blankPageStrokes.map(cloneBlankDrawStroke),
+  };
+  target.blankDrawPage = blankDrawPageIndex;
+}
+
+function loadBlankDrawPageIntoMemory(pageIndex) {
+  const target = getBlankDrawStoreTarget();
+  if (!target) return;
+  normalizeBlankDrawPages(target);
+  blankDrawPageIndex = Math.max(0, Math.min(target.blankDrawPages.length - 1, pageIndex));
+  const page = target.blankDrawPages[blankDrawPageIndex] || createEmptyBlankDrawPage();
+  blankPageBackground = page.background || null;
+  blankPageStrokes = (page.strokes || []).map(cloneBlankDrawStroke);
+  blankBackgroundImage = null;
+  blankBackgroundImageSrc = null;
+  clearBlankLassoSelection();
+}
+
+function syncBlankDrawPageNav() {
+  const target = getBlankDrawStoreTarget();
+  if (target) normalizeBlankDrawPages(target);
+  const pageCount = target?.blankDrawPages?.length || 1;
+  const label = $('#blankDrawPageLabel');
+  const prevBtn = $('#blankDrawPagePrev');
+  const nextBtn = $('#blankDrawPageNext');
+  if (label) label.textContent = `${blankDrawPageIndex + 1} / ${pageCount}`;
+  if (prevBtn) prevBtn.disabled = blankDrawPageIndex <= 0;
+  if (nextBtn) nextBtn.disabled = false;
+}
+
+function navigateBlankDrawPage(delta) {
+  const target = getBlankDrawStoreTarget();
+  if (!target) return;
+  normalizeBlankDrawPages(target);
+  flushBlankDrawPageToStore();
+  if (delta > 0) {
+    if (blankDrawPageIndex < target.blankDrawPages.length - 1) {
+      loadBlankDrawPageIntoMemory(blankDrawPageIndex + 1);
+    } else {
+      target.blankDrawPages.push(createEmptyBlankDrawPage());
+      loadBlankDrawPageIntoMemory(target.blankDrawPages.length - 1);
+    }
+  } else if (delta < 0 && blankDrawPageIndex > 0) {
+    loadBlankDrawPageIntoMemory(blankDrawPageIndex - 1);
+  }
+  blankDrawUndoStack.length = 0;
+  syncBlankDrawUndoBtn();
+  syncBlankDrawPageNav();
+  blankDrawDirty = true;
+  redrawBlankCanvas();
+  saveBlankDraw();
+}
+
+function getBlankDrawLineWidthForSize(size, tool = 'pen') {
+  const base = BLANK_DRAW_WIDTHS[size] || BLANK_DRAW_WIDTHS.m;
+  return tool === 'eraser' ? base * 2.5 : base;
+}
+
+function getBlankEraserHitRadius() {
+  return getBlankDrawLineWidthForSize(blankDrawSize, 'eraser') * 1.25;
+}
+
+function drawBlankStroke(ctx, stroke, highlight = false) {
+  if (!ctx || !stroke?.points?.length) return;
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = getBlankDrawLineWidthForSize(stroke.size, 'pen');
+  ctx.globalCompositeOperation = 'source-over';
+  if (highlight) {
+    ctx.strokeStyle = 'rgba(37, 99, 235, 0.55)';
+    ctx.lineWidth += 4;
+  } else {
+    ctx.strokeStyle = stroke.color || BLANK_DRAW_DEFAULT_COLOR;
+  }
+  ctx.beginPath();
+  ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+  for (let i = 1; i < stroke.points.length; i++) {
+    ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawBlankStrokePoints(ctx, points, color, size) {
+  if (!ctx || !points?.length) return;
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = getBlankDrawLineWidthForSize(size, 'pen');
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.strokeStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) {
+    ctx.lineTo(points[i].x, points[i].y);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function ensureBlankBackgroundImage(src, onDone) {
+  if (!src) {
+    blankBackgroundImage = null;
+    blankBackgroundImageSrc = null;
+    onDone?.();
+    return;
+  }
+  if (blankBackgroundImageSrc === src && blankBackgroundImage) {
+    onDone?.();
+    return;
+  }
+  const img = new Image();
+  img.onload = () => {
+    blankBackgroundImage = img;
+    blankBackgroundImageSrc = src;
+    onDone?.();
+  };
+  img.onerror = () => {
+    blankBackgroundImage = null;
+    blankBackgroundImageSrc = null;
+    onDone?.();
+  };
+  img.src = src;
+}
+
+function redrawBlankCanvas() {
+  const canvas = $('#blankCanvas');
+  if (!canvas || !blankDrawCtx) return;
+  ensureBlankBackgroundImage(blankPageBackground, () => {
+    blankDrawCtx.globalCompositeOperation = 'source-over';
+    blankDrawCtx.clearRect(0, 0, canvas.width, canvas.height);
+    if (blankBackgroundImage) {
+      blankDrawCtx.drawImage(blankBackgroundImage, 0, 0, canvas.width, canvas.height);
+    }
+    blankPageStrokes.forEach((stroke, index) => {
+      drawBlankStroke(blankDrawCtx, stroke, blankSelectedStrokeIndices.has(index));
+    });
+    if (blankCurrentStrokePoints?.length) {
+      drawBlankStrokePoints(blankDrawCtx, blankCurrentStrokePoints, blankDrawColor, blankDrawSize);
+    }
+    redrawBlankCanvasOverlay();
+  });
+}
+
+function redrawBlankCanvasOverlay() {
+  const overlay = $('#blankCanvasOverlay');
+  const canvas = $('#blankCanvas');
+  if (!overlay || !canvas) return;
+  if (!blankDrawOverlayCtx) blankDrawOverlayCtx = overlay.getContext('2d');
+  if (overlay.width !== canvas.width || overlay.height !== canvas.height) {
+    overlay.width = canvas.width;
+    overlay.height = canvas.height;
+  }
+  blankDrawOverlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+  if (blankLassoPath.length >= 2) {
+    blankDrawOverlayCtx.save();
+    blankDrawOverlayCtx.strokeStyle = 'rgba(37, 99, 235, 0.9)';
+    blankDrawOverlayCtx.lineWidth = 2;
+    blankDrawOverlayCtx.setLineDash([6, 4]);
+    blankDrawOverlayCtx.beginPath();
+    blankDrawOverlayCtx.moveTo(blankLassoPath[0].x, blankLassoPath[0].y);
+    for (let i = 1; i < blankLassoPath.length; i++) {
+      blankDrawOverlayCtx.lineTo(blankLassoPath[i].x, blankLassoPath[i].y);
+    }
+    if (!blankLassoSelecting && blankLassoPath.length >= 3) {
+      blankDrawOverlayCtx.closePath();
+    }
+    blankDrawOverlayCtx.stroke();
+    blankDrawOverlayCtx.restore();
+  }
+  if (blankSelectedStrokeIndices.size) {
+    const bounds = getBlankSelectedStrokeBounds();
+    if (bounds) {
+      blankDrawOverlayCtx.save();
+      blankDrawOverlayCtx.strokeStyle = 'rgba(37, 99, 235, 0.75)';
+      blankDrawOverlayCtx.lineWidth = 2;
+      blankDrawOverlayCtx.setLineDash([5, 4]);
+      blankDrawOverlayCtx.strokeRect(bounds.x, bounds.y, bounds.w, bounds.h);
+      blankDrawOverlayCtx.restore();
+    }
+  }
+}
+
+function scaleBlankDrawPageContent(sx, sy) {
+  if (sx === 1 && sy === 1) return;
+  blankPageStrokes.forEach((stroke) => {
+    stroke.points.forEach((p) => {
+      p.x *= sx;
+      p.y *= sy;
+    });
+  });
+}
+
+function isCurrentBlankPageEmpty() {
+  return !blankPageBackground && blankPageStrokes.length === 0;
+}
+
+function renderBlankDrawPreviewPage0(target, width, height, onDone) {
+  if (!target) {
+    onDone?.(null);
+    return;
+  }
+  normalizeBlankDrawPages(target);
+  const page = target.blankDrawPages[0];
+  if (!blankDrawPageHasInk(page)) {
+    onDone?.(null);
+    return;
+  }
+  const w = width >= 2 ? width : 640;
+  const h = height >= 2 ? height : 480;
+  const off = document.createElement('canvas');
+  off.width = w;
+  off.height = h;
+  const ctx = off.getContext('2d');
+  if (!ctx) {
+    onDone?.(page.background || null);
+    return;
+  }
+  const finish = (bgImg) => {
+    ctx.clearRect(0, 0, w, h);
+    if (bgImg) ctx.drawImage(bgImg, 0, 0, w, h);
+    (page.strokes || []).forEach((stroke) => drawBlankStroke(ctx, stroke));
+    try {
+      onDone?.(off.toDataURL('image/png'));
+    } catch (_) {
+      onDone?.(page.background || null);
+    }
+  };
+  if (page.background) {
+    const img = new Image();
+    img.onload = () => finish(img);
+    img.onerror = () => finish(null);
+    img.src = page.background;
+    return;
+  }
+  finish(null);
+}
+
+function refreshBlankDrawPreview(forcePage0 = false) {
+  const target = getBlankDrawStoreTarget();
+  if (!target) return;
+  flushBlankDrawPageToStore();
+  normalizeBlankDrawPages(target);
+  const canvas = $('#blankCanvas');
+  if (blankDrawPageIndex === 0 && canvas?.width >= 2 && canvas?.height >= 2) {
+    try {
+      setBlankDraw(isCurrentBlankPageEmpty() ? null : canvas.toDataURL('image/png'));
+      return;
+    } catch (_) {}
+  }
+  if (!forcePage0) return;
+  renderBlankDrawPreviewPage0(target, canvas?.width, canvas?.height, (url) => setBlankDraw(url));
+}
+
+function pushBlankDrawUndo() {
+  blankDrawUndoStack.push({
+    background: blankPageBackground,
+    strokes: blankPageStrokes.map(cloneBlankDrawStroke),
+  });
+  if (blankDrawUndoStack.length > BLANK_DRAW_UNDO_MAX) blankDrawUndoStack.shift();
+  syncBlankDrawUndoBtn();
+}
+
+function clearBlankLassoSelection() {
+  blankLassoPath = [];
+  blankLassoSelecting = false;
+  blankSelectedStrokeIndices = new Set();
+  blankLassoDrag = null;
+  syncBlankLassoActions();
+  redrawBlankCanvasOverlay();
+}
+
+function syncBlankLassoActions() {
+  const btn = $('#blankLassoDelete');
+  if (!btn) return;
+  const show = blankDrawTool === 'lasso' && blankSelectedStrokeIndices.size > 0;
+  btn.hidden = !show;
+  if (show) btn.removeAttribute('hidden');
+  else btn.setAttribute('hidden', '');
+}
+
+function blankPointDist(a, b) {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function blankPointInPolygon(point, polygon) {
+  if (polygon.length < 3) return false;
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].x;
+    const yi = polygon[i].y;
+    const xj = polygon[j].x;
+    const yj = polygon[j].y;
+    const intersect =
+      yi > point.y !== yj > point.y &&
+      point.x < ((xj - xi) * (point.y - yi)) / (yj - yi + 0.00001) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+function getStrokeBounds(stroke) {
+  if (!stroke?.points?.length) return null;
+  let minX = stroke.points[0].x;
+  let minY = stroke.points[0].y;
+  let maxX = minX;
+  let maxY = minY;
+  stroke.points.forEach((p) => {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x);
+    maxY = Math.max(maxY, p.y);
+  });
+  const pad = getBlankDrawLineWidthForSize(stroke.size, 'pen') / 2;
+  return { x: minX - pad, y: minY - pad, w: maxX - minX + pad * 2, h: maxY - minY + pad * 2 };
+}
+
+function getBlankSelectedStrokeBounds() {
+  let bounds = null;
+  blankSelectedStrokeIndices.forEach((index) => {
+    const b = getStrokeBounds(blankPageStrokes[index]);
+    if (!b) return;
+    if (!bounds) bounds = { ...b };
+    else {
+      const x2 = bounds.x + bounds.w;
+      const y2 = bounds.y + bounds.h;
+      const bx2 = b.x + b.w;
+      const by2 = b.y + b.h;
+      const minX = Math.min(bounds.x, b.x);
+      const minY = Math.min(bounds.y, b.y);
+      bounds.x = minX;
+      bounds.y = minY;
+      bounds.w = Math.max(x2, bx2) - minX;
+      bounds.h = Math.max(y2, by2) - minY;
+    }
+  });
+  return bounds;
+}
+
+function blankPointInBounds(point, bounds) {
+  return (
+    point.x >= bounds.x &&
+    point.x <= bounds.x + bounds.w &&
+    point.y >= bounds.y &&
+    point.y <= bounds.y + bounds.h
+  );
+}
+
+function findBlankStrokesNearPoint(point, radius) {
+  const hits = [];
+  blankPageStrokes.forEach((stroke, index) => {
+    if (stroke.points.some((p) => blankPointDist(p, point) <= radius)) hits.push(index);
+  });
+  return hits;
+}
+
+function removeBlankStrokeIndices(indices) {
+  const sorted = [...new Set(indices)].sort((a, b) => b - a);
+  if (!sorted.length) return false;
+  sorted.forEach((index) => {
+    if (index >= 0 && index < blankPageStrokes.length) blankPageStrokes.splice(index, 1);
+  });
+  return true;
+}
+
+function selectBlankStrokesInLasso() {
+  if (blankLassoPath.length < 3) return;
+  blankSelectedStrokeIndices = new Set();
+  blankPageStrokes.forEach((stroke, index) => {
+    if (stroke.points.some((p) => blankPointInPolygon(p, blankLassoPath))) {
+      blankSelectedStrokeIndices.add(index);
+    }
+  });
+  blankLassoPath = [];
+  blankLassoSelecting = false;
+  syncBlankLassoActions();
+  redrawBlankCanvas();
+}
+
+function deleteBlankLassoSelection() {
+  if (!blankSelectedStrokeIndices.size) return;
+  pushBlankDrawUndo();
+  const indices = [...blankSelectedStrokeIndices].sort((a, b) => b - a);
+  indices.forEach((index) => {
+    if (index >= 0 && index < blankPageStrokes.length) blankPageStrokes.splice(index, 1);
+  });
+  clearBlankLassoSelection();
+  blankDrawDirty = true;
+  redrawBlankCanvas();
+  saveBlankDraw();
+}
+
+function eraseBlankStrokesAtPoint(point) {
+  const radius = getBlankEraserHitRadius();
+  const hits = findBlankStrokesNearPoint(point, radius);
+  if (!hits.length) return false;
+  if (!blankEraserRemoved) {
+    pushBlankDrawUndo();
+    blankEraserRemoved = true;
+  }
+  removeBlankStrokeIndices(hits);
+  redrawBlankCanvas();
+  return true;
 }
 
 function resetBlankCanvasBuffer() {
@@ -2677,22 +3156,30 @@ function normalizeBlankDrawColor() {
 }
 
 function syncBlankDrawColorForPaper() {
-  if (blankDrawTool === 'eraser') return;
+  if (blankDrawTool === 'eraser' || blankDrawTool === 'lasso') return;
   normalizeBlankDrawColor();
   syncBlankDrawToolbar();
 }
 
-function isBlankDrawCanvasEmpty(canvas) {
-  if (!canvas?.width || !canvas.height || !blankDrawCtx) return true;
-  const { width, height } = canvas;
-  const step = Math.max(1, Math.floor(Math.sqrt((width * height) / 4096)));
-  const data = blankDrawCtx.getImageData(0, 0, width, height).data;
-  for (let y = 0; y < height; y += step) {
-    for (let x = 0; x < width; x += step) {
-      if (data[(y * width + x) * 4 + 3] > 8) return false;
-    }
+function initBlankDrawPageState() {
+  const target = getBlankDrawStoreTarget();
+  if (target) {
+    normalizeBlankDrawPages(target);
+    loadBlankDrawPageIntoMemory(
+      typeof target.blankDrawPage === 'number' ? target.blankDrawPage : 0
+    );
+  } else {
+    blankDrawPageIndex = 0;
+    blankPageBackground = null;
+    blankPageStrokes = [];
   }
-  return true;
+  blankDrawUndoStack.length = 0;
+  blankCurrentStrokePoints = null;
+  blankEraserRemoved = false;
+  blankPenUndoPending = false;
+  syncBlankDrawUndoBtn();
+  syncBlankDrawPageNav();
+  syncBlankLassoActions();
 }
 
 function getBodyHTML(block) {
@@ -5203,6 +5690,8 @@ function clearBlockTypeFields(block) {
   delete block.timerSec;
   delete block.blankContent;
   delete block.blankDraw;
+  delete block.blankDrawPages;
+  delete block.blankDrawPage;
   delete block.blankPaper;
   delete block.blankPaperStep;
   delete block.listRevealAll;
@@ -6017,6 +6506,7 @@ function applyBlockTypeDefaults(block, type) {
     block.blankDraw = block.blankDraw || null;
     if (!block.blankPaper) block.blankPaper = 'lined';
     normalizeBlankPaperFields(block);
+    normalizeBlankDrawPages(block);
     if (block.w < 320) block.w = 360;
     if (block.h < 240) block.h = 280;
   }
@@ -8947,10 +9437,7 @@ function openBlank(blockId) {
   overlay.removeAttribute('hidden');
   document.body.classList.add('blank-open');
   document.body.style.overflow = 'hidden';
-  blankDrawUndoStack.length = 0;
-  blankStrokeBefore = null;
-  blankStrokeMoved = false;
-  syncBlankDrawUndoBtn();
+  initBlankDrawPageState();
   const editor = $('#blankEditor');
   const content = getBlankContent();
   if (editor && editor.innerHTML !== content) editor.innerHTML = content;
@@ -8982,18 +9469,21 @@ function closeBlank() {
   const editor = $('#blankEditor');
   if (editor) setBlankContent(editor.innerHTML);
   saveBlankDraw();
+  refreshBlankDrawPreview(true);
   const block = getBlankBlock();
   overlay.hidden = true;
   overlay.setAttribute('hidden', '');
   document.body.classList.remove('blank-open');
   blankDrawUndoStack.length = 0;
-  blankStrokeBefore = null;
-  blankStrokeMoved = false;
-  syncBlankDrawUndoBtn();
   blankDrawing = false;
   blankBlockId = null;
   blankCanvasOwnerId = null;
   blankDrawCtx = null;
+  blankDrawOverlayCtx = null;
+  blankCurrentStrokePoints = null;
+  blankEraserRemoved = false;
+  blankPenUndoPending = false;
+  clearBlankLassoSelection();
   syncBlankWhiteboardTitle();
   const canvas = $('#blankCanvas');
   if (canvas) delete canvas.dataset.bound;
@@ -9023,68 +9513,23 @@ function setBlankTab(tab) {
   }
 }
 
-function getBlankDrawLineWidth() {
-  const base = BLANK_DRAW_WIDTHS[blankDrawSize] || BLANK_DRAW_WIDTHS.m;
-  return blankDrawTool === 'eraser' ? base * 2.5 : base;
-}
-
-function applyBlankDrawContext(ctx) {
-  if (!ctx) return;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.lineWidth = getBlankDrawLineWidth();
-  if (blankDrawTool === 'eraser') {
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.strokeStyle = 'rgba(0,0,0,1)';
-  } else {
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.strokeStyle = blankDrawColor;
-  }
-}
-
 function syncBlankDrawUndoBtn() {
   const btn = $('#blankDrawUndo');
   if (btn) btn.disabled = blankDrawUndoStack.length === 0;
 }
 
-function commitBlankDrawStrokeUndo() {
-  if (!blankStrokeMoved || !blankStrokeBefore) return;
-  blankDrawUndoStack.push(blankStrokeBefore);
-  if (blankDrawUndoStack.length > BLANK_DRAW_UNDO_MAX) blankDrawUndoStack.shift();
-  syncBlankDrawUndoBtn();
-  blankStrokeBefore = null;
-  blankStrokeMoved = false;
-}
-
-function restoreBlankDrawSnapshot(dataUrl, onDone) {
-  const canvas = $('#blankCanvas');
-  if (!canvas || !blankDrawCtx || !dataUrl) {
-    onDone?.();
-    return;
-  }
-  const img = new Image();
-  img.onload = () => {
-    blankDrawCtx.globalCompositeOperation = 'source-over';
-    blankDrawCtx.clearRect(0, 0, canvas.width, canvas.height);
-    blankDrawCtx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    applyBlankDrawContext(blankDrawCtx);
-    saveBlankDraw();
-    onDone?.();
-  };
-  img.onerror = () => onDone?.();
-  img.src = dataUrl;
-}
-
 function undoBlankDrawStroke() {
   if (blankDrawUndoBusy || blankDrawUndoStack.length === 0) return;
-  const beforeLastStroke = blankDrawUndoStack.pop();
+  const snapshot = blankDrawUndoStack.pop();
   syncBlankDrawUndoBtn();
-  blankDrawUndoBusy = true;
-  restoreBlankDrawSnapshot(beforeLastStroke, () => {
-    blankDrawUndoBusy = false;
-    blankDrawDirty = true;
-    saveBlankDraw();
-  });
+  blankPageBackground = snapshot.background || null;
+  blankPageStrokes = (snapshot.strokes || []).map(cloneBlankDrawStroke);
+  blankBackgroundImage = null;
+  blankBackgroundImageSrc = null;
+  clearBlankLassoSelection();
+  blankDrawDirty = true;
+  redrawBlankCanvas();
+  saveBlankDraw();
 }
 
 function syncBlankDrawToolbar() {
@@ -9119,8 +9564,17 @@ function syncBlankDrawToolbar() {
     btn.classList.toggle('is-active', on);
     btn.setAttribute('aria-pressed', on ? 'true' : 'false');
   });
-  $('#blankDrawColors')?.classList.toggle('is-disabled', blankDrawTool === 'eraser');
-  canvas?.classList.toggle('blank-canvas--eraser', blankDrawTool === 'eraser');
+  const colorDisabled = blankDrawTool === 'eraser' || blankDrawTool === 'lasso';
+  $('#blankDrawColors')?.classList.toggle('is-disabled', colorDisabled);
+  canvas?.classList.remove('blank-canvas--eraser', 'blank-canvas--lasso', 'blank-canvas--lasso-move');
+  if (blankDrawTool === 'eraser') canvas?.classList.add('blank-canvas--eraser');
+  if (blankDrawTool === 'lasso') {
+    canvas?.classList.add(
+      blankSelectedStrokeIndices.size && !blankLassoSelecting ? 'blank-canvas--lasso-move' : 'blank-canvas--lasso'
+    );
+  }
+  syncBlankLassoActions();
+  syncBlankDrawPageNav();
 }
 
 function blankCanvasPos(canvas, e) {
@@ -9138,6 +9592,8 @@ function initBlankCanvas() {
   const canvas = $('#blankCanvas');
   if (!canvas) return;
   if (!blankDrawCtx) blankDrawCtx = canvas.getContext('2d');
+  const overlay = $('#blankCanvasOverlay');
+  if (overlay && !blankDrawOverlayCtx) blankDrawOverlayCtx = overlay.getContext('2d');
   if (canvas.dataset.bound) return;
   canvas.dataset.bound = '1';
 
@@ -9147,38 +9603,128 @@ function initBlankCanvas() {
     if (canvas.clientWidth >= 2 && canvas.clientHeight >= 2) resizeBlankCanvas();
     const p = blankCanvasPos(canvas, e);
     if (!p || !blankDrawCtx) return;
-    try {
-      blankStrokeBefore = canvas.toDataURL('image/png');
-    } catch (_) {
-      blankStrokeBefore = null;
-    }
-    blankStrokeMoved = false;
     blankDrawing = true;
-    applyBlankDrawContext(blankDrawCtx);
-    blankDrawCtx.beginPath();
-    blankDrawCtx.moveTo(p.x, p.y);
     canvas.setPointerCapture?.(e.pointerId);
+
+    if (blankDrawTool === 'lasso') {
+      const bounds = getBlankSelectedStrokeBounds();
+      if (blankSelectedStrokeIndices.size && bounds && blankPointInBounds(p, bounds)) {
+        blankLassoDrag = { start: p, last: p, indices: [...blankSelectedStrokeIndices], undoPushed: false };
+        return;
+      }
+      clearBlankLassoSelection();
+      blankLassoPath = [p];
+      blankLassoSelecting = true;
+      redrawBlankCanvasOverlay();
+      return;
+    }
+
+    if (blankDrawTool === 'eraser') {
+      blankEraserRemoved = false;
+      if (eraseBlankStrokesAtPoint(p)) blankDrawDirty = true;
+      return;
+    }
+
+    blankPenUndoPending = true;
+    blankCurrentStrokePoints = [p];
+    drawBlankStrokePoints(blankDrawCtx, blankCurrentStrokePoints, blankDrawColor, blankDrawSize);
   };
 
   const move = (e) => {
     if (!blankDrawing || !blankDrawCtx) return;
     const p = blankCanvasPos(canvas, e);
     if (!p) return;
-    blankStrokeMoved = true;
-    applyBlankDrawContext(blankDrawCtx);
-    blankDrawCtx.lineTo(p.x, p.y);
-    blankDrawCtx.stroke();
-    blankDrawCtx.beginPath();
-    blankDrawCtx.moveTo(p.x, p.y);
+
+    if (blankDrawTool === 'lasso') {
+      if (blankLassoDrag) {
+        const dx = p.x - blankLassoDrag.last.x;
+        const dy = p.y - blankLassoDrag.last.y;
+        if ((dx || dy) && !blankLassoDrag.undoPushed) {
+          pushBlankDrawUndo();
+          blankLassoDrag.undoPushed = true;
+        }
+        blankLassoDrag.indices.forEach((index) => {
+          const stroke = blankPageStrokes[index];
+          if (!stroke) return;
+          stroke.points.forEach((pt) => {
+            pt.x += dx;
+            pt.y += dy;
+          });
+        });
+        blankLassoDrag.last = p;
+        blankDrawDirty = true;
+        redrawBlankCanvas();
+        return;
+      }
+      if (!blankLassoSelecting) return;
+      const last = blankLassoPath[blankLassoPath.length - 1];
+      if (!last || blankPointDist(last, p) >= 2) {
+        blankLassoPath.push(p);
+        redrawBlankCanvasOverlay();
+      }
+      return;
+    }
+
+    if (blankDrawTool === 'eraser') {
+      if (eraseBlankStrokesAtPoint(p)) blankDrawDirty = true;
+      return;
+    }
+
+    if (!blankCurrentStrokePoints) return;
+    blankCurrentStrokePoints.push(p);
+    if (blankPenUndoPending && blankCurrentStrokePoints.length === 2) {
+      pushBlankDrawUndo();
+      blankPenUndoPending = false;
+    }
+    redrawBlankCanvas();
   };
 
   const up = (e) => {
     if (!blankDrawing) return;
     blankDrawing = false;
     canvas.releasePointerCapture?.(e.pointerId);
-    commitBlankDrawStrokeUndo();
-    blankDrawDirty = true;
-    saveBlankDraw();
+
+    if (blankDrawTool === 'lasso') {
+      if (blankLassoDrag) {
+        if (blankLassoDrag.start.x !== blankLassoDrag.last.x || blankLassoDrag.start.y !== blankLassoDrag.last.y) {
+          blankDrawDirty = true;
+          saveBlankDraw();
+        }
+        blankLassoDrag = null;
+        syncBlankDrawToolbar();
+        redrawBlankCanvas();
+        return;
+      }
+      if (blankLassoSelecting) {
+        selectBlankStrokesInLasso();
+        syncBlankDrawToolbar();
+        redrawBlankCanvas();
+      }
+      return;
+    }
+
+    if (blankDrawTool === 'eraser') {
+      if (blankEraserRemoved) {
+        blankDrawDirty = true;
+        saveBlankDraw();
+      }
+      blankEraserRemoved = false;
+      return;
+    }
+
+    blankPenUndoPending = false;
+    if (blankCurrentStrokePoints && blankCurrentStrokePoints.length > 1) {
+      blankPageStrokes.push({
+        tool: 'pen',
+        color: blankDrawColor,
+        size: blankDrawSize,
+        points: blankCurrentStrokePoints.map((pt) => ({ x: pt.x, y: pt.y })),
+      });
+      blankDrawDirty = true;
+      saveBlankDraw();
+    }
+    blankCurrentStrokePoints = null;
+    redrawBlankCanvas();
   };
 
   canvas.addEventListener('pointerdown', down);
@@ -9189,54 +9735,43 @@ function initBlankCanvas() {
 
 function resizeBlankCanvas() {
   const canvas = $('#blankCanvas');
+  const overlay = $('#blankCanvasOverlay');
   if (!canvas) return;
   if (!blankDrawCtx) blankDrawCtx = canvas.getContext('2d');
   const w = Math.max(canvas.clientWidth, 1);
   const h = Math.max(canvas.clientHeight, 1);
   if (w < 2 || h < 2) return;
 
-  const ownerMatches = blankCanvasOwnerId === blankBlockId;
   if (canvas.width === w && canvas.height === h) {
-    applyBlankDrawContext(blankDrawCtx);
+    redrawBlankCanvas();
     return;
   }
 
-  let snapshot = null;
-  if (ownerMatches && canvas.width > 0 && canvas.height > 0) {
-    try {
-      snapshot = canvas.toDataURL('image/png');
-    } catch (_) {}
+  const oldW = canvas.width;
+  const oldH = canvas.height;
+  if (ownerMatchesResize(oldW, oldH)) {
+    const sx = oldW > 0 ? w / oldW : 1;
+    const sy = oldH > 0 ? h / oldH : 1;
+    scaleBlankDrawPageContent(sx, sy);
   }
-  if (!snapshot) snapshot = getBlankDraw();
 
   canvas.width = w;
   canvas.height = h;
-  applyBlankDrawContext(blankDrawCtx);
-
-  if (snapshot) {
-    const img = new Image();
-    img.onload = () => {
-      blankDrawCtx.globalCompositeOperation = 'source-over';
-      blankDrawCtx.clearRect(0, 0, w, h);
-      blankDrawCtx.drawImage(img, 0, 0, w, h);
-      applyBlankDrawContext(blankDrawCtx);
-    };
-    img.src = snapshot;
-  } else {
-    blankDrawCtx.globalCompositeOperation = 'source-over';
-    blankDrawCtx.clearRect(0, 0, w, h);
-    applyBlankDrawContext(blankDrawCtx);
+  if (overlay) {
+    overlay.width = w;
+    overlay.height = h;
   }
+  redrawBlankCanvas();
+}
+
+function ownerMatchesResize(oldW, oldH) {
+  return blankCanvasOwnerId === blankBlockId && oldW > 0 && oldH > 0;
 }
 
 function saveBlankDraw() {
   if (!blankDrawDirty) return;
-  const canvas = $('#blankCanvas');
-  if (!canvas?.width || !canvas.height || !blankDrawCtx) return;
-  try {
-    if (isBlankDrawCanvasEmpty(canvas)) setBlankDraw(null);
-    else setBlankDraw(canvas.toDataURL('image/png'));
-  } catch (_) {}
+  refreshBlankDrawPreview(false);
+  persist();
 }
 
 function renderBlankDrawColors() {
@@ -9263,10 +9798,16 @@ function initBlankDrawToolbar() {
 
   $$('[data-draw-tool]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      blankDrawTool = btn.dataset.drawTool === 'eraser' ? 'eraser' : 'pen';
+      const tool = btn.dataset.drawTool;
+      blankDrawTool = tool === 'eraser' || tool === 'lasso' ? tool : 'pen';
+      if (blankDrawTool !== 'lasso') clearBlankLassoSelection();
+      redrawBlankCanvas();
       syncBlankDrawToolbar();
     });
   });
+  $('#blankLassoDelete')?.addEventListener('click', () => deleteBlankLassoSelection());
+  $('#blankDrawPagePrev')?.addEventListener('click', () => navigateBlankDrawPage(-1));
+  $('#blankDrawPageNext')?.addEventListener('click', () => navigateBlankDrawPage(1));
   $('#blankDrawColors')?.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-draw-color]');
     if (!btn) return;
@@ -9287,14 +9828,16 @@ function initBlankUI() {
   initBlankDrawToolbar();
 
   $('#blankClearDraw')?.addEventListener('click', () => {
-    const canvas = $('#blankCanvas');
-    if (!blankDrawCtx || !canvas) return;
-    blankDrawCtx.globalCompositeOperation = 'source-over';
-    blankDrawCtx.clearRect(0, 0, canvas.width, canvas.height);
-    blankDrawUndoStack.length = 0;
-    syncBlankDrawUndoBtn();
+    if (!blankDrawCtx) return;
+    pushBlankDrawUndo();
+    blankPageBackground = null;
+    blankPageStrokes = [];
+    blankBackgroundImage = null;
+    blankBackgroundImageSrc = null;
+    clearBlankLassoSelection();
     blankDrawDirty = true;
-    setBlankDraw(null);
+    redrawBlankCanvas();
+    saveBlankDraw();
   });
 
   $('#blankClose')?.addEventListener('click', (e) => {
@@ -9321,6 +9864,20 @@ function initBlankUI() {
       e.preventDefault();
       if (presentWhiteboardMounted) return;
       closeBlank();
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if ($('[data-blank-pane="draw"]')?.hidden || $('#blankOverlay')?.hidden) return;
+    if (blankDrawTool !== 'lasso' || !blankSelectedStrokeIndices.size) return;
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault();
+      deleteBlankLassoSelection();
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      clearBlankLassoSelection();
+      redrawBlankCanvas();
+      syncBlankDrawToolbar();
     }
   });
 }

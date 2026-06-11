@@ -399,6 +399,12 @@
       <div class="blank-canvas-stack">
         <div id="blankCanvasPaper" class="blank-canvas-paper blank-paper-surface blank-paper-surface--plain" aria-hidden="true"></div>
         <canvas id="blankCanvas" class="blank-canvas"></canvas>
+        <canvas id="blankCanvasOverlay" class="blank-canvas-overlay" aria-hidden="true"></canvas>
+        <nav class="blank-draw-page-nav" aria-label="Drawing pages">
+          <button type="button" id="blankDrawPagePrev" class="blank-draw-page-btn" aria-label="Previous page" disabled>‹</button>
+          <span id="blankDrawPageLabel" class="blank-draw-page-label">1 / 1</span>
+          <button type="button" id="blankDrawPageNext" class="blank-draw-page-btn" aria-label="Next page">›</button>
+        </nav>
       </div>
       <div class="blank-draw-tools blank-pane-footer">
         <div class="blank-pane-footer-row">
@@ -416,7 +422,9 @@
           <div class="blank-draw-modes" role="group" aria-label="Tool">
             <button type="button" class="blank-draw-mode is-active" data-draw-tool="pen" aria-pressed="true">Pen</button>
             <button type="button" class="blank-draw-mode" data-draw-tool="eraser" aria-pressed="false">Eraser</button>
+            <button type="button" class="blank-draw-mode" data-draw-tool="lasso" aria-pressed="false">Lasso</button>
           </div>
+          <button type="button" id="blankLassoDelete" class="btn btn-ghost btn-sm blank-lasso-action" hidden>Delete selection</button>
           <div class="blank-draw-colors" id="blankDrawColors" role="group" aria-label="Colour"></div>
           <div class="blank-draw-sizes" role="group" aria-label="Thickness">
             <button type="button" class="blank-draw-size" data-draw-size="s" aria-pressed="false">S</button>
