@@ -5806,22 +5806,38 @@ body.blank-open .hint {
 .blank-text-input {
   position: absolute;
   z-index: 4;
-  min-width: 48px;
-  max-width: 92%;
-  padding: 6px 10px;
-  border: 2px solid rgba(37, 99, 235, 0.85);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.96);
+  min-width: 32px;
+  padding: 4px 8px;
+  border: 2px dashed rgba(37, 99, 235, 0.55);
+  border-radius: 4px;
+  background: transparent;
   color: #1a1d23;
   font-family: var(--font);
   font-weight: 600;
   line-height: 1.25;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  box-shadow: none;
   outline: none;
   resize: none;
   overflow: hidden;
   white-space: pre;
   word-break: normal;
+  caret-color: currentColor;
+}
+
+.blank-text-input--on-dark {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.blank-text-measure {
+  position: fixed;
+  left: -9999px;
+  top: -9999px;
+  visibility: hidden;
+  white-space: pre;
+  pointer-events: none;
+  font-family: var(--font);
+  font-weight: 600;
+  line-height: 1.25;
 }
 
 .blank-text-input[hidden] {

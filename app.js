@@ -147,6 +147,8 @@ const BLANK_DRAW_COLORS_DARK = [
   { color: '#f472b6', label: 'Pink' },
 ];
 const BLANK_TEXT_DEFAULT_SIZE = 'l';
+const BLANK_CANVAS_FONT_FAMILY = '"DM Sans", system-ui, sans-serif';
+let blankTextMeasureEl = null;
 const BLANK_PAPER_BG_TYPES = new Set(['light', 'dark']);
 const BLANK_PAPER_BG_FILL = { light: '#f8f9fc', dark: '#141820' };
 const BLANK_PAPER_BG_LINE = {
@@ -2722,9 +2724,32 @@ function getBlankEraserHitRadius() {
   return getBlankDrawLineWidthForSize(blankDrawSize, 'eraser') * 1.25;
 }
 
+function getBlankDrawFontFamily() {
+  const input = $('#blankTextInput');
+  if (input && !input.hidden) {
+    const fam = getComputedStyle(input).fontFamily;
+    if (fam) return fam;
+  }
+  return BLANK_CANVAS_FONT_FAMILY;
+}
+
+function getBlankCanvasFont(fontSizePx) {
+  return `600 ${fontSizePx}px ${getBlankDrawFontFamily()}`;
+}
+
 function getBlankTextFontSize(stroke) {
   const base = BLANK_TEXT_SIZES[stroke.size] || BLANK_TEXT_SIZES.l;
   return base * (stroke.scale || 1);
+}
+
+function getBlankTextMeasureEl() {
+  if (!blankTextMeasureEl) {
+    blankTextMeasureEl = document.createElement('span');
+    blankTextMeasureEl.className = 'blank-text-measure';
+    blankTextMeasureEl.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(blankTextMeasureEl);
+  }
+  return blankTextMeasureEl;
 }
 
 function getBlankTextLineHeight(stroke) {
@@ -2744,7 +2769,7 @@ function drawBlankTextStroke(ctx, stroke, highlight = false) {
   const lineHeight = getBlankTextLineHeight(s);
   ctx.save();
   ctx.globalCompositeOperation = 'source-over';
-  ctx.font = `600 ${getBlankTextFontSize(s)}px var(--font, system-ui, sans-serif)`;
+  ctx.font = getBlankCanvasFont(getBlankTextFontSize(s));
   ctx.textBaseline = 'top';
   ctx.fillStyle = highlight ? 'rgba(37, 99, 235, 0.85)' : s.color || BLANK_DRAW_DEFAULT_COLOR;
   lines.forEach((line, i) => {
@@ -3031,7 +3056,7 @@ function measureBlankTextStroke(ctx, stroke) {
   const lines = getBlankTextLines(s);
   const lineHeight = getBlankTextLineHeight(s);
   ctx.save();
-  ctx.font = `600 ${getBlankTextFontSize(s)}px var(--font, system-ui, sans-serif)`;
+  ctx.font = getBlankCanvasFont(getBlankTextFontSize(s));
   let maxW = 0;
   lines.forEach((line) => {
     maxW = Math.max(maxW, ctx.measureText(line || ' ').width);
@@ -3252,43 +3277,52 @@ function isBlankDrawToolbarTarget(el) {
   );
 }
 
-function measureBlankTextInputBox(text, fontSizePx) {
-  const canvas = $('#blankCanvas');
-  const ctx = blankDrawCtx || canvas?.getContext('2d');
+function measureBlankTextInputBox(text, fontSizePx, fontFamily = getBlankDrawFontFamily()) {
   const lines = (text || '').replace(/\r\n/g, '\n').split('\n');
-  let contentW = 48;
-  if (ctx) {
-    ctx.save();
-    ctx.font = `600 ${fontSizePx}px var(--font, system-ui, sans-serif)`;
-    lines.forEach((line) => {
-      contentW = Math.max(contentW, ctx.measureText(line || ' ').width);
-    });
-    ctx.restore();
-  }
+  const el = getBlankTextMeasureEl();
+  el.style.fontFamily = fontFamily;
+  el.style.fontSize = `${fontSizePx}px`;
+  el.style.fontWeight = '600';
+  el.style.lineHeight = '1.25';
+  let contentW = 8;
+  lines.forEach((line) => {
+    el.textContent = line || '\u00a0';
+    contentW = Math.max(contentW, el.offsetWidth);
+  });
   return { lines, contentW };
 }
 
 function syncBlankTextInputSize(input = $('#blankTextInput')) {
   if (!input || input.hidden) return;
   const stack = $('.blank-canvas-stack');
-  const maxW = stack ? Math.max(stack.clientWidth * 0.92, 200) : 720;
+  const maxW = stack ? Math.max(stack.clientWidth * 0.92, 120) : 720;
   const scale = getBlankTextInputScale();
-  const fontSize = (BLANK_TEXT_SIZES[blankDrawSize] || BLANK_TEXT_SIZES.l) * scale;
-  const lineHeight = getBlankTextLineHeight({ size: blankDrawSize, scale: 1 }) * scale;
-  const { lines, contentW } = measureBlankTextInputBox(input.value, fontSize);
-  const w = Math.max(48, Math.min(contentW + 24, maxW));
-  const h = Math.max(lineHeight + 8, lines.length * lineHeight + 8);
+  const editScale = blankTextEditing?.scale || 1;
+  const fontSize = (BLANK_TEXT_SIZES[blankDrawSize] || BLANK_TEXT_SIZES.l) * scale * editScale;
+  const lineHeight = fontSize * 1.25;
+  const fontFamily = getBlankDrawFontFamily();
+  const { lines, contentW } = measureBlankTextInputBox(input.value, fontSize, fontFamily);
+  const w = Math.max(32, Math.min(contentW + 20, maxW));
+  const h = Math.max(lineHeight + 6, lines.length * lineHeight + 6);
   input.style.width = `${w}px`;
   input.style.height = `${h}px`;
+  input.style.maxWidth = `${maxW}px`;
 }
 
 function syncBlankTextInputStyle() {
   const input = $('#blankTextInput');
   if (!isBlankTextInputActive() || !input) return;
   const scale = getBlankTextInputScale();
-  const fontSize = (BLANK_TEXT_SIZES[blankDrawSize] || BLANK_TEXT_SIZES.l) * scale;
+  const editScale = blankTextEditing?.scale || 1;
+  const fontSize = (BLANK_TEXT_SIZES[blankDrawSize] || BLANK_TEXT_SIZES.l) * scale * editScale;
+  const onDark = getBlankPaperBg() === 'dark';
   input.style.fontSize = `${fontSize}px`;
+  input.style.lineHeight = '1.25';
+  input.style.fontWeight = '600';
   input.style.color = blankDrawColor;
+  input.style.caretColor = blankDrawColor;
+  input.style.background = 'transparent';
+  input.classList.toggle('blank-text-input--on-dark', onDark);
   syncBlankTextInputSize(input);
 }
 
@@ -3324,7 +3358,9 @@ function showBlankTextInputAt(canvasPoint, strokeIndex = null, initialText = '')
   input.value = initialText;
   input.hidden = false;
   input.removeAttribute('hidden');
-  blankTextEditing = { index: strokeIndex, x: canvasPoint.x, y: canvasPoint.y };
+  const editScale =
+    strokeIndex != null ? normalizeBlankStroke(blankPageStrokes[strokeIndex]).scale || 1 : 1;
+  blankTextEditing = { index: strokeIndex, x: canvasPoint.x, y: canvasPoint.y, scale: editScale };
   syncBlankTextInputStyle();
   syncBlankDrawToolbar();
   requestAnimationFrame(() => {
@@ -3357,7 +3393,7 @@ function commitBlankTextInput() {
     y,
     color: blankDrawColor,
     size: blankDrawSize,
-    scale: 1,
+    scale: blankTextEditing.scale || 1,
   };
   if (index != null) {
     pushBlankDrawUndo();
@@ -10298,6 +10334,7 @@ function initBlankDrawToolbar() {
   $$('[data-draw-size]').forEach((btn) => {
     btn.addEventListener('click', () => {
       blankDrawSize = btn.dataset.drawSize || 'm';
+      if (blankTextEditing) blankTextEditing.scale = 1;
       syncBlankDrawToolbar();
     });
   });
@@ -10346,7 +10383,7 @@ function initBlankUI() {
       closeBlank();
     }
   });
-  $('#blankTextInput')?.addEventListener('input', () => syncBlankTextInputSize());
+  $('#blankTextInput')?.addEventListener('input', () => syncBlankTextInputStyle());
   $('#blankTextInput')?.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       e.preventDefault();
