@@ -3252,15 +3252,32 @@ function isBlankDrawToolbarTarget(el) {
   );
 }
 
+function measureBlankTextInputBox(text, fontSizePx) {
+  const canvas = $('#blankCanvas');
+  const ctx = blankDrawCtx || canvas?.getContext('2d');
+  const lines = (text || '').replace(/\r\n/g, '\n').split('\n');
+  let contentW = 48;
+  if (ctx) {
+    ctx.save();
+    ctx.font = `600 ${fontSizePx}px var(--font, system-ui, sans-serif)`;
+    lines.forEach((line) => {
+      contentW = Math.max(contentW, ctx.measureText(line || ' ').width);
+    });
+    ctx.restore();
+  }
+  return { lines, contentW };
+}
+
 function syncBlankTextInputSize(input = $('#blankTextInput')) {
   if (!input || input.hidden) return;
   const stack = $('.blank-canvas-stack');
   const maxW = stack ? Math.max(stack.clientWidth * 0.92, 200) : 720;
-  input.style.width = '0px';
-  input.style.height = '0px';
-  const w = Math.max(48, Math.min(input.scrollWidth + 10, maxW));
-  const minH = getBlankTextLineHeight({ size: blankDrawSize, scale: 1 }) * getBlankTextInputScale();
-  const h = Math.max(minH, input.scrollHeight + 4);
+  const scale = getBlankTextInputScale();
+  const fontSize = (BLANK_TEXT_SIZES[blankDrawSize] || BLANK_TEXT_SIZES.l) * scale;
+  const lineHeight = getBlankTextLineHeight({ size: blankDrawSize, scale: 1 }) * scale;
+  const { lines, contentW } = measureBlankTextInputBox(input.value, fontSize);
+  const w = Math.max(48, Math.min(contentW + 24, maxW));
+  const h = Math.max(lineHeight + 8, lines.length * lineHeight + 8);
   input.style.width = `${w}px`;
   input.style.height = `${h}px`;
 }

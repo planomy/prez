@@ -5820,9 +5820,8 @@ body.blank-open .hint {
   outline: none;
   resize: none;
   overflow: hidden;
-  white-space: pre-wrap;
-  word-break: break-word;
-  field-sizing: content;
+  white-space: pre;
+  word-break: normal;
 }
 
 .blank-text-input[hidden] {
