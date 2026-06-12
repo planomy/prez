@@ -135,6 +135,14 @@ const BLANK_DRAW_COLORS = [
   { color: '#1d4ed8', label: 'Blue' },
   { color: '#7c3aed', label: 'Violet' },
 ];
+const BLANK_PAPER_BG_TYPES = new Set(['light', 'dark']);
+const BLANK_PAPER_BG_FILL = { light: '#f8f9fc', dark: '#141820' };
+const BLANK_PAPER_BG_LINE = {
+  light: { line: 'rgba(59, 130, 246, 0.38)', grid: 'rgba(96, 165, 250, 0.42)', margin: 'rgba(220, 90, 80, 0.35)' },
+  dark: { line: 'rgba(255, 255, 255, 0.16)', grid: 'rgba(255, 255, 255, 0.14)', margin: 'rgba(255, 120, 120, 0.28)' },
+};
+const BLANK_TEXT_SIZES = { s: 20, m: 32, l: 48 };
+const BLANK_RESIZE_HANDLE_RADIUS = 12;
 const BLANK_DRAW_LEGACY_LIGHT = new Set([
   '#f4f6f8',
   '#ffffff',
@@ -213,6 +221,7 @@ const DEFAULTS = {
   blankDrawPages: null,
   blankDrawPage: 0,
   blankPaper: 'plain',
+  blankPaperBg: 'light',
   blankPaperStep: BLANK_PAPER_STEP_DEFAULT,
   timerSeconds: 300,
   mindMapCenterId: null,
@@ -413,6 +422,8 @@ let blankLassoPath = [];
 let blankLassoSelecting = false;
 let blankSelectedStrokeIndices = new Set();
 let blankLassoDrag = null;
+let blankLassoResize = null;
+let blankTextEditing = null;
 /** Whiteboard workspace mounted inside Present (type / table / draw). */
 let presentWhiteboardMounted = false;
 
@@ -2050,20 +2061,11 @@ function canPreserveBlockBody(el, block) {
   }
 
   if (block.type === 'whiteboard') {
-    const blankEl = $('[data-field="blank-content"]', el);
-    const active = document.activeElement;
-    const editingOnCard = blankEl && (active === blankEl || blankEl.contains(active));
-    if (editingOnCard) {
-      const saved = cleanTableColResizeMarkup(block.blankContent || '');
-      const live = cleanTableColResizeMarkup(blankEl.innerHTML);
-      if (live !== saved) return false;
-      if (block.blankDraw) {
-        const img = $('.block-whiteboard-thumb', el);
-        return !!(img && img.getAttribute('src') === block.blankDraw);
-      }
-      return !$('.block-whiteboard-thumb', el);
+    if (block.blankDraw) {
+      const img = $('.block-whiteboard-thumb', el);
+      return !!(img && img.getAttribute('src') === block.blankDraw);
     }
-    return false;
+    return !$('.block-whiteboard-thumb', el);
   }
 
   return false;
@@ -2186,7 +2188,7 @@ function hidePresentWhiteboard() {
   if (overlay) {
     overlay.hidden = true;
     overlay.setAttribute('hidden', '');
-    overlay.classList.remove('blank-overlay--present');
+    overlay.classList.remove('blank-overlay--present', 'blank-overlay--draw-only');
     if (present && overlay.parentElement === present) {
       document.body.insertBefore(overlay, present.nextSibling);
     }
@@ -2230,7 +2232,8 @@ function mountPresentWhiteboard(block) {
   ensureBlankTableControls(editor);
   cleanBlankEditorDom(editor);
   normalizeBlankEditorStructure(editor);
-  setBlankTab(hasBlankDrawContent(block) && !(block.blankContent || '').trim() ? 'draw' : 'type');
+  syncBlankOverlayMode();
+  setBlankTab('draw');
   syncBlankPaperLayer();
   syncBlankDrawToolbar();
   syncBlankDrawColorForPaper();
@@ -2480,22 +2483,21 @@ function syncBlockFooter(el, block) {
 }
 
 function isWhiteboardCardEmpty(block) {
-  if (block.blankDraw || hasBlankDrawContent(block)) return false;
-  const html = (block.blankContent || '').trim();
-  if (!html) return true;
-  if (blankHtmlToPlainText(html)) return false;
-  return !/blank-table|blank-editor-surface/i.test(html);
+  return !(block.blankDraw || hasBlankDrawContent(block));
+}
+
+function isBlankWhiteboardMode() {
+  const b = getBlankBlock();
+  return b?.type === 'whiteboard';
 }
 
 function getWhiteboardPreviewInnerHTML(block) {
   const empty = isWhiteboardCardEmpty(block);
   const drawImg = block.blankDraw ? getWhiteboardDrawStackHTML(block) : '';
   const emptyHint = empty
-    ? '<p class="block-whiteboard-empty-hint">Click to type · Open whiteboard for tables &amp; draw</p>'
+    ? '<p class="block-whiteboard-empty-hint">Open whiteboard to draw</p>'
     : '';
-  return `${emptyHint}<div class="block-whiteboard-text-wrap">
-    <div class="block-whiteboard-content block-whiteboard-preview-inner block-content" contenteditable="true" data-field="blank-content" data-placeholder="Type for the class…" spellcheck="true">${block.blankContent || ''}</div>
-  </div>${drawImg}`;
+  return `${emptyHint}${drawImg}`;
 }
 
 function getWhiteboardPreviewClass(block) {
@@ -2517,11 +2519,6 @@ function syncWhiteboardDrawThumb(el, block) {
 function updateWhiteboardPreview(block) {
   const el = $(`[data-block-id="${block.id}"]`, canvasInner);
   if (!el || block.type !== 'whiteboard') return;
-  const active = document.activeElement;
-  if (active && el.contains(active) && active.closest('[data-field="blank-content"]')) {
-    syncWhiteboardDrawThumb(el, block);
-    return;
-  }
   const preview = $('.block-whiteboard-preview', el);
   if (preview) {
     preview.className = getWhiteboardPreviewClass(block);
@@ -2560,13 +2557,35 @@ function createEmptyBlankDrawPage() {
   return { background: null, strokes: [] };
 }
 
-function cloneBlankDrawStroke(stroke) {
+function isBlankTextStroke(stroke) {
+  return stroke?.type === 'text' || (typeof stroke?.text === 'string' && typeof stroke?.x === 'number');
+}
+
+function normalizeBlankStroke(stroke) {
+  if (!stroke) return { type: 'pen', color: BLANK_DRAW_DEFAULT_COLOR, size: 'm', points: [] };
+  if (isBlankTextStroke(stroke)) {
+    return {
+      type: 'text',
+      text: String(stroke.text || ''),
+      x: stroke.x || 0,
+      y: stroke.y || 0,
+      color: stroke.color || BLANK_DRAW_DEFAULT_COLOR,
+      size: BLANK_DRAW_WIDTHS[stroke.size] ? stroke.size : 'm',
+      scale: typeof stroke.scale === 'number' && stroke.scale > 0 ? stroke.scale : 1,
+    };
+  }
   return {
-    tool: 'pen',
+    type: 'pen',
     color: stroke.color || BLANK_DRAW_DEFAULT_COLOR,
     size: BLANK_DRAW_WIDTHS[stroke.size] ? stroke.size : 'm',
     points: (stroke.points || []).map((p) => ({ x: p.x, y: p.y })),
   };
+}
+
+function cloneBlankDrawStroke(stroke) {
+  const s = normalizeBlankStroke(stroke);
+  if (s.type === 'text') return { ...s };
+  return { ...s, points: s.points.map((p) => ({ x: p.x, y: p.y })) };
 }
 
 function cloneBlankDrawPage(page) {
@@ -2589,7 +2608,7 @@ function normalizeBlankDrawPages(target) {
     if (typeof page === 'string') return { background: page, strokes: [] };
     return {
       background: page?.background || null,
-      strokes: Array.isArray(page?.strokes) ? page.strokes.map(cloneBlankDrawStroke) : [],
+      strokes: Array.isArray(page?.strokes) ? page.strokes.map((s) => cloneBlankDrawStroke(normalizeBlankStroke(s))) : [],
     };
   });
   const max = target.blankDrawPages.length - 1;
@@ -2691,23 +2710,45 @@ function getBlankEraserHitRadius() {
   return getBlankDrawLineWidthForSize(blankDrawSize, 'eraser') * 1.25;
 }
 
+function getBlankTextFontSize(stroke) {
+  const base = BLANK_TEXT_SIZES[stroke.size] || BLANK_TEXT_SIZES.m;
+  return base * (stroke.scale || 1);
+}
+
+function drawBlankTextStroke(ctx, stroke, highlight = false) {
+  if (!ctx || !stroke?.text) return;
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.font = `600 ${getBlankTextFontSize(stroke)}px var(--font, system-ui, sans-serif)`;
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = highlight ? 'rgba(37, 99, 235, 0.85)' : stroke.color || BLANK_DRAW_DEFAULT_COLOR;
+  ctx.fillText(stroke.text, stroke.x, stroke.y);
+  ctx.restore();
+}
+
 function drawBlankStroke(ctx, stroke, highlight = false) {
-  if (!ctx || !stroke?.points?.length) return;
+  if (!ctx || !stroke) return;
+  const normalized = normalizeBlankStroke(stroke);
+  if (normalized.type === 'text') {
+    drawBlankTextStroke(ctx, normalized, highlight);
+    return;
+  }
+  if (!normalized.points?.length) return;
   ctx.save();
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  ctx.lineWidth = getBlankDrawLineWidthForSize(stroke.size, 'pen');
+  ctx.lineWidth = getBlankDrawLineWidthForSize(normalized.size, 'pen');
   ctx.globalCompositeOperation = 'source-over';
   if (highlight) {
     ctx.strokeStyle = 'rgba(37, 99, 235, 0.55)';
     ctx.lineWidth += 4;
   } else {
-    ctx.strokeStyle = stroke.color || BLANK_DRAW_DEFAULT_COLOR;
+    ctx.strokeStyle = normalized.color || BLANK_DRAW_DEFAULT_COLOR;
   }
   ctx.beginPath();
-  ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
-  for (let i = 1; i < stroke.points.length; i++) {
-    ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+  ctx.moveTo(normalized.points[0].x, normalized.points[0].y);
+  for (let i = 1; i < normalized.points.length; i++) {
+    ctx.lineTo(normalized.points[i].x, normalized.points[i].y);
   }
   ctx.stroke();
   ctx.restore();
@@ -2808,19 +2849,41 @@ function redrawBlankCanvasOverlay() {
       blankDrawOverlayCtx.lineWidth = 2;
       blankDrawOverlayCtx.setLineDash([5, 4]);
       blankDrawOverlayCtx.strokeRect(bounds.x, bounds.y, bounds.w, bounds.h);
+      getBlankResizeHandles(bounds).forEach((handle) => {
+        blankDrawOverlayCtx.setLineDash([]);
+        blankDrawOverlayCtx.fillStyle = '#fff';
+        blankDrawOverlayCtx.strokeStyle = 'rgba(37, 99, 235, 0.95)';
+        blankDrawOverlayCtx.lineWidth = 2;
+        blankDrawOverlayCtx.beginPath();
+        blankDrawOverlayCtx.rect(handle.x - 5, handle.y - 5, 10, 10);
+        blankDrawOverlayCtx.fill();
+        blankDrawOverlayCtx.stroke();
+      });
       blankDrawOverlayCtx.restore();
     }
   }
 }
 
+function scaleBlankStrokeFromAnchor(stroke, anchor, scaleX, scaleY) {
+  const s = cloneBlankDrawStroke(stroke);
+  if (s.type === 'text') {
+    s.x = anchor.x + (s.x - anchor.x) * scaleX;
+    s.y = anchor.y + (s.y - anchor.y) * scaleY;
+    s.scale = (s.scale || 1) * Math.min(scaleX, scaleY);
+    return s;
+  }
+  s.points = s.points.map((p) => ({
+    x: anchor.x + (p.x - anchor.x) * scaleX,
+    y: anchor.y + (p.y - anchor.y) * scaleY,
+  }));
+  return s;
+}
+
 function scaleBlankDrawPageContent(sx, sy) {
   if (sx === 1 && sy === 1) return;
-  blankPageStrokes.forEach((stroke) => {
-    stroke.points.forEach((p) => {
-      p.x *= sx;
-      p.y *= sy;
-    });
-  });
+  blankPageStrokes = blankPageStrokes.map((stroke) =>
+    scaleBlankStrokeFromAnchor(stroke, { x: 0, y: 0 }, sx, sy)
+  );
 }
 
 function isCurrentBlankPageEmpty() {
@@ -2898,6 +2961,8 @@ function clearBlankLassoSelection() {
   blankLassoSelecting = false;
   blankSelectedStrokeIndices = new Set();
   blankLassoDrag = null;
+  blankLassoResize = null;
+  hideBlankTextInput();
   syncBlankLassoActions();
   redrawBlankCanvasOverlay();
 }
@@ -2933,20 +2998,82 @@ function blankPointInPolygon(point, polygon) {
   return inside;
 }
 
-function getStrokeBounds(stroke) {
-  if (!stroke?.points?.length) return null;
-  let minX = stroke.points[0].x;
-  let minY = stroke.points[0].y;
+function measureBlankTextStroke(ctx, stroke) {
+  const s = normalizeBlankStroke(stroke);
+  if (!ctx || s.type !== 'text') return null;
+  ctx.save();
+  ctx.font = `600 ${getBlankTextFontSize(s)}px var(--font, system-ui, sans-serif)`;
+  const w = ctx.measureText(s.text || ' ').width;
+  ctx.restore();
+  const h = getBlankTextFontSize(s) * 1.2;
+  return { x: s.x, y: s.y, w: Math.max(w, 8), h };
+}
+
+function getStrokeBounds(stroke, ctx = blankDrawCtx) {
+  const s = normalizeBlankStroke(stroke);
+  if (s.type === 'text') {
+    const measured = ctx ? measureBlankTextStroke(ctx, s) : null;
+    if (measured) return measured;
+    return { x: s.x, y: s.y, w: Math.max((s.text || '').length * 10, 24), h: getBlankTextFontSize(s) * 1.2 };
+  }
+  if (!s.points?.length) return null;
+  let minX = s.points[0].x;
+  let minY = s.points[0].y;
   let maxX = minX;
   let maxY = minY;
-  stroke.points.forEach((p) => {
+  s.points.forEach((p) => {
     minX = Math.min(minX, p.x);
     minY = Math.min(minY, p.y);
     maxX = Math.max(maxX, p.x);
     maxY = Math.max(maxY, p.y);
   });
-  const pad = getBlankDrawLineWidthForSize(stroke.size, 'pen') / 2;
+  const pad = getBlankDrawLineWidthForSize(s.size, 'pen') / 2;
   return { x: minX - pad, y: minY - pad, w: maxX - minX + pad * 2, h: maxY - minY + pad * 2 };
+}
+
+function getBlankResizeHandles(bounds) {
+  if (!bounds) return [];
+  const { x, y, w, h } = bounds;
+  return [
+    { id: 'nw', x, y },
+    { id: 'ne', x: x + w, y },
+    { id: 'sw', x, y: y + h },
+    { id: 'se', x: x + w, y: y + h },
+  ];
+}
+
+function getBlankResizeHandleAtPoint(point, bounds) {
+  const r = BLANK_RESIZE_HANDLE_RADIUS;
+  return getBlankResizeHandles(bounds).find((handle) => blankPointDist(point, handle) <= r) || null;
+}
+
+function getBlankResizeAnchor(handleId, bounds) {
+  if (!bounds) return { x: 0, y: 0 };
+  if (handleId === 'nw') return { x: bounds.x + bounds.w, y: bounds.y + bounds.h };
+  if (handleId === 'ne') return { x: bounds.x, y: bounds.y + bounds.h };
+  if (handleId === 'sw') return { x: bounds.x + bounds.w, y: bounds.y };
+  return { x: bounds.x, y: bounds.y };
+}
+
+function applyBlankSelectionResize(handleId, anchor, startBounds, point, snapshot, indices) {
+  let scaleX = 1;
+  let scaleY = 1;
+  if (handleId === 'se') {
+    scaleX = Math.max(0.05, (point.x - anchor.x) / startBounds.w);
+    scaleY = Math.max(0.05, (point.y - anchor.y) / startBounds.h);
+  } else if (handleId === 'nw') {
+    scaleX = Math.max(0.05, (anchor.x - point.x) / startBounds.w);
+    scaleY = Math.max(0.05, (anchor.y - point.y) / startBounds.h);
+  } else if (handleId === 'ne') {
+    scaleX = Math.max(0.05, (point.x - anchor.x) / startBounds.w);
+    scaleY = Math.max(0.05, (anchor.y - point.y) / startBounds.h);
+  } else if (handleId === 'sw') {
+    scaleX = Math.max(0.05, (anchor.x - point.x) / startBounds.w);
+    scaleY = Math.max(0.05, (point.y - anchor.y) / startBounds.h);
+  }
+  indices.forEach((index, i) => {
+    if (snapshot[i]) blankPageStrokes[index] = scaleBlankStrokeFromAnchor(snapshot[i], anchor, scaleX, scaleY);
+  });
 }
 
 function getBlankSelectedStrokeBounds() {
@@ -2980,10 +3107,19 @@ function blankPointInBounds(point, bounds) {
   );
 }
 
+function strokeHitsPoint(stroke, point, radius) {
+  const s = normalizeBlankStroke(stroke);
+  if (s.type === 'text') {
+    const b = getStrokeBounds(s, blankDrawCtx);
+    return b && blankPointInBounds(point, b);
+  }
+  return s.points?.some((p) => blankPointDist(p, point) <= radius);
+}
+
 function findBlankStrokesNearPoint(point, radius) {
   const hits = [];
   blankPageStrokes.forEach((stroke, index) => {
-    if (stroke.points.some((p) => blankPointDist(p, point) <= radius)) hits.push(index);
+    if (strokeHitsPoint(stroke, point, radius)) hits.push(index);
   });
   return hits;
 }
@@ -2997,13 +3133,22 @@ function removeBlankStrokeIndices(indices) {
   return true;
 }
 
+function strokeInLasso(stroke, polygon) {
+  const s = normalizeBlankStroke(stroke);
+  if (s.type === 'text') {
+    const b = getStrokeBounds(s, blankDrawCtx);
+    if (!b) return false;
+    const center = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+    return blankPointInPolygon(center, polygon);
+  }
+  return s.points?.some((p) => blankPointInPolygon(p, polygon));
+}
+
 function selectBlankStrokesInLasso() {
   if (blankLassoPath.length < 3) return;
   blankSelectedStrokeIndices = new Set();
   blankPageStrokes.forEach((stroke, index) => {
-    if (stroke.points.some((p) => blankPointInPolygon(p, blankLassoPath))) {
-      blankSelectedStrokeIndices.add(index);
-    }
+    if (strokeInLasso(stroke, blankLassoPath)) blankSelectedStrokeIndices.add(index);
   });
   blankLassoPath = [];
   blankLassoSelecting = false;
@@ -3037,6 +3182,134 @@ function eraseBlankStrokesAtPoint(point) {
   return true;
 }
 
+function moveBlankStroke(stroke, dx, dy) {
+  const s = normalizeBlankStroke(stroke);
+  if (s.type === 'text') {
+    s.x += dx;
+    s.y += dy;
+    return s;
+  }
+  s.points = s.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+  return s;
+}
+
+function isBlankTextInputActive() {
+  const input = $('#blankTextInput');
+  return !!blankTextEditing && input && !input.hidden;
+}
+
+function getBlankTextInputScale() {
+  const canvas = $('#blankCanvas');
+  if (!canvas?.height) return 1;
+  const rect = canvas.getBoundingClientRect();
+  return rect.height > 0 ? rect.height / canvas.height : 1;
+}
+
+function syncBlankTextInputStyle() {
+  const input = $('#blankTextInput');
+  if (!isBlankTextInputActive() || !input) return;
+  const scale = getBlankTextInputScale();
+  const fontSize = (BLANK_TEXT_SIZES[blankDrawSize] || BLANK_TEXT_SIZES.m) * scale;
+  input.style.fontSize = `${fontSize}px`;
+  input.style.color = blankDrawColor;
+}
+
+function hideBlankTextInput() {
+  const input = $('#blankTextInput');
+  if (!input) return;
+  input.hidden = true;
+  input.setAttribute('hidden', '');
+  input.value = '';
+  blankTextEditing = null;
+}
+
+function showBlankTextInputAt(canvasPoint, strokeIndex = null, initialText = '') {
+  const canvas = $('#blankCanvas');
+  const stack = $('.blank-canvas-stack');
+  const input = $('#blankTextInput');
+  if (!canvas || !stack || !input) return;
+  if (strokeIndex != null) {
+    const stroke = normalizeBlankStroke(blankPageStrokes[strokeIndex]);
+    blankDrawSize = BLANK_DRAW_WIDTHS[stroke.size] ? stroke.size : 'm';
+    blankDrawColor = stroke.color || blankDrawColor;
+  }
+  const rect = canvas.getBoundingClientRect();
+  const stackRect = stack.getBoundingClientRect();
+  const scaleX = rect.width / canvas.width;
+  const scaleY = rect.height / canvas.height;
+  const left = rect.left - stackRect.left + canvasPoint.x * scaleX;
+  const top = rect.top - stackRect.top + canvasPoint.y * scaleY;
+  input.style.left = `${left}px`;
+  input.style.top = `${top}px`;
+  input.value = initialText;
+  input.hidden = false;
+  input.removeAttribute('hidden');
+  blankTextEditing = { index: strokeIndex, x: canvasPoint.x, y: canvasPoint.y };
+  syncBlankTextInputStyle();
+  syncBlankDrawToolbar();
+  requestAnimationFrame(() => input.focus());
+}
+
+function commitBlankTextInput() {
+  const input = $('#blankTextInput');
+  if (!input || !blankTextEditing) return;
+  const text = input.value.trim();
+  const { index, x, y } = blankTextEditing;
+  hideBlankTextInput();
+  if (!text) {
+    if (index != null) {
+      pushBlankDrawUndo();
+      blankPageStrokes.splice(index, 1);
+      blankDrawDirty = true;
+      redrawBlankCanvas();
+      saveBlankDraw();
+    }
+    return;
+  }
+  const stroke = {
+    type: 'text',
+    text,
+    x,
+    y,
+    color: blankDrawColor,
+    size: blankDrawSize,
+    scale: 1,
+  };
+  if (index != null) {
+    pushBlankDrawUndo();
+    blankPageStrokes[index] = stroke;
+  } else {
+    pushBlankDrawUndo();
+    blankPageStrokes.push(stroke);
+  }
+  blankDrawDirty = true;
+  redrawBlankCanvas();
+  saveBlankDraw();
+}
+
+function findBlankTextStrokeAtPoint(point) {
+  for (let i = blankPageStrokes.length - 1; i >= 0; i--) {
+    const stroke = blankPageStrokes[i];
+    if (!isBlankTextStroke(stroke)) continue;
+    const b = getStrokeBounds(stroke, blankDrawCtx);
+    if (b && blankPointInBounds(point, b)) return i;
+  }
+  return null;
+}
+
+function renderBlankDrawBgColors() {
+  const wrap = $('#blankDrawBgColors');
+  if (!wrap || wrap.dataset.built === '1') return;
+  wrap.dataset.built = '1';
+  wrap.innerHTML = [...BLANK_PAPER_BG_TYPES]
+        .map((bg) => {
+          const active = getBlankPaperBg() === bg;
+          const label = bg === 'dark' ? 'Dark background' : 'Light background';
+          return `<button type="button" class="blank-draw-bg-btn${active ? ' is-active' : ''}" data-blank-bg="${bg}" aria-label="${label}" aria-pressed="${active ? 'true' : 'false'}"></button>`;
+        })
+        .join('');
+}
+
 function resetBlankCanvasBuffer() {
   const canvas = $('#blankCanvas');
   if (canvas) {
@@ -3056,6 +3329,7 @@ function normalizeBlankPaperFields(target) {
   const type = target.blankPaper;
   target.blankPaper = BLANK_PAPER_TYPES.has(type) ? type : 'plain';
   target.blankPaperStep = clampBlankPaperStep(target.blankPaperStep);
+  target.blankPaperBg = BLANK_PAPER_BG_TYPES.has(target.blankPaperBg) ? target.blankPaperBg : 'light';
 }
 
 function getBlankPaperType() {
@@ -3114,17 +3388,45 @@ function getBlankPaperCellPx(step = getBlankPaperStep()) {
   return BLANK_PAPER_CELL_STEPS[clampBlankPaperStep(step)];
 }
 
+function getBlankPaperBg(target = null) {
+  const src = target || (blankBlockId ? getBlock(blankBlockId) : state);
+  const bg = src?.blankPaperBg;
+  return BLANK_PAPER_BG_TYPES.has(bg) ? bg : 'light';
+}
+
+function setBlankPaperBg(bg) {
+  const tone = BLANK_PAPER_BG_TYPES.has(bg) ? bg : 'light';
+  if (blankBlockId) {
+    const b = getBlock(blankBlockId);
+    if (!b) return;
+    b.blankPaperBg = tone;
+    if (b.type === 'whiteboard') updateWhiteboardPreview(b);
+  } else {
+    state.blankPaperBg = tone;
+  }
+  if (tone === 'dark' && blankDrawColor === BLANK_DRAW_DEFAULT_COLOR) blankDrawColor = '#f4f6f8';
+  if (tone === 'light' && blankDrawColor === '#f4f6f8') blankDrawColor = BLANK_DRAW_DEFAULT_COLOR;
+  syncBlankPaperLayer();
+  syncBlankDrawToolbar();
+  persist();
+}
+
 function getBlankPaperSurfaceAttrs(blockOrState) {
   const type = BLANK_PAPER_TYPES.has(blockOrState?.blankPaper) ? blockOrState.blankPaper : 'plain';
   const step = clampBlankPaperStep(blockOrState?.blankPaperStep);
-  const cls = `blank-paper-surface blank-paper-surface--${type}`;
-  if (type === 'lined') {
-    return { cls, style: `--paper-line:${BLANK_PAPER_LINE_STEPS[step]}px` };
-  }
-  if (type === 'quad') {
-    return { cls, style: `--paper-cell:${BLANK_PAPER_CELL_STEPS[step]}px` };
-  }
-  return { cls: 'blank-paper-surface blank-paper-surface--plain', style: '' };
+  const bg = getBlankPaperBg(blockOrState);
+  const palette = BLANK_PAPER_BG_LINE[bg];
+  const fill = BLANK_PAPER_BG_FILL[bg];
+  const cls = `blank-paper-surface blank-paper-surface--${type} blank-paper-bg-${bg}`;
+  const vars = [
+    `--blank-paper-fill:${fill}`,
+    `--paper-line-color:${palette.line}`,
+    `--paper-grid-color:${palette.grid}`,
+    `--paper-margin-color:${palette.margin}`,
+  ];
+  if (type === 'lined') vars.push(`--paper-line:${BLANK_PAPER_LINE_STEPS[step]}px`);
+  if (type === 'quad') vars.push(`--paper-cell:${BLANK_PAPER_CELL_STEPS[step]}px`);
+  return { cls, style: vars.join(';') };
 }
 
 function getWhiteboardDrawStackHTML(block) {
@@ -3139,13 +3441,21 @@ function getWhiteboardDrawStackHTML(block) {
 function syncBlankPaperLayer() {
   const layer = $('#blankCanvasPaper');
   if (!layer) return;
-  const type = getBlankPaperType();
-  const step = getBlankPaperStep();
-  layer.className = `blank-canvas-paper blank-paper-surface blank-paper-surface--${type}`;
-  layer.style.removeProperty('--paper-line');
-  layer.style.removeProperty('--paper-cell');
-  if (type === 'lined') layer.style.setProperty('--paper-line', `${BLANK_PAPER_LINE_STEPS[step]}px`);
-  if (type === 'quad') layer.style.setProperty('--paper-cell', `${BLANK_PAPER_CELL_STEPS[step]}px`);
+  const { cls, style } = getBlankPaperSurfaceAttrs(blankBlockId ? getBlock(blankBlockId) : state);
+  layer.className = `blank-canvas-paper ${cls}`;
+  layer.style.cssText = style || '';
+}
+
+function syncBlankOverlayMode() {
+  const overlay = $('#blankOverlay');
+  if (!overlay) return;
+  const drawOnly = isBlankWhiteboardMode();
+  overlay.classList.toggle('blank-overlay--draw-only', drawOnly);
+  if (drawOnly) {
+    $$('[data-blank-pane]').forEach((p) => {
+      p.hidden = p.dataset.blankPane !== 'draw';
+    });
+  }
 }
 
 function normalizeBlankDrawColor() {
@@ -3157,6 +3467,9 @@ function normalizeBlankDrawColor() {
 
 function syncBlankDrawColorForPaper() {
   if (blankDrawTool === 'eraser' || blankDrawTool === 'lasso') return;
+  if (getBlankPaperBg() === 'dark' && blankDrawColor === BLANK_DRAW_DEFAULT_COLOR) {
+    blankDrawColor = '#f4f6f8';
+  }
   normalizeBlankDrawColor();
   syncBlankDrawToolbar();
 }
@@ -4136,27 +4449,6 @@ function bindBodyInputs(el, block) {
   if (contentEl) {
     contentEl.oninput = () => {
       block.content = contentEl.innerHTML;
-      persist();
-    };
-  }
-
-  const blankContentEl = $('[data-field="blank-content"]', el);
-  if (blankContentEl && block.type === 'whiteboard') {
-    blankContentEl.oninput = () => {
-      block.blankContent = cleanTableColResizeMarkup(blankContentEl.innerHTML);
-      const preview = $('.block-whiteboard-preview', el);
-      if (preview) preview.className = getWhiteboardPreviewClass(block);
-      const hint = $('.block-whiteboard-empty-hint', el);
-      if (isWhiteboardCardEmpty(block)) {
-        if (!hint && preview) {
-          preview.insertAdjacentHTML(
-            'afterbegin',
-            '<p class="block-whiteboard-empty-hint">Click to type · Open whiteboard for tables &amp; draw</p>'
-          );
-        }
-      } else {
-        hint?.remove();
-      }
       persist();
     };
   }
@@ -5693,6 +5985,7 @@ function clearBlockTypeFields(block) {
   delete block.blankDrawPages;
   delete block.blankDrawPage;
   delete block.blankPaper;
+  delete block.blankPaperBg;
   delete block.blankPaperStep;
   delete block.listRevealAll;
   delete block.pollOptions;
@@ -8545,9 +8838,6 @@ function getPresentHTML(block, { showTitle = true } = {}) {
       return `<div class="present-body present-body--sticky present-body--text">${block.content || '<p>Empty sticky</p>'}</div>`;
     case 'whiteboard': {
       let body = '';
-      if ((block.blankContent || '').trim()) {
-        body += `<div class="present-body present-body--text">${block.blankContent}</div>`;
-      }
       if (block.blankDraw) {
         const { cls, style } = getBlankPaperSurfaceAttrs(block);
         const styleAttr = style ? ` style="${style}"` : '';
@@ -9446,6 +9736,7 @@ function openBlank(blockId) {
   normalizeBlankEditorStructure(editor);
   refreshBlankTableColumnResize();
   const block = blankBlockId ? getBlock(blankBlockId) : null;
+  syncBlankOverlayMode();
   if (block?.type === 'whiteboard') setBlankTab('draw');
   else setBlankTab('type');
   syncBlankWhiteboardTitle();
@@ -9473,7 +9764,9 @@ function closeBlank() {
   const block = getBlankBlock();
   overlay.hidden = true;
   overlay.setAttribute('hidden', '');
+  overlay.classList.remove('blank-overlay--draw-only');
   document.body.classList.remove('blank-open');
+  hideBlankTextInput();
   blankDrawUndoStack.length = 0;
   blankDrawing = false;
   blankBlockId = null;
@@ -9564,10 +9857,31 @@ function syncBlankDrawToolbar() {
     btn.classList.toggle('is-active', on);
     btn.setAttribute('aria-pressed', on ? 'true' : 'false');
   });
+  const sizeGroup = $('.blank-draw-sizes');
+  if (sizeGroup) {
+    const textSizing = blankDrawTool === 'text' || isBlankTextInputActive();
+    sizeGroup.setAttribute('aria-label', textSizing ? 'Text size' : 'Thickness');
+  }
+  syncBlankTextInputStyle();
   const colorDisabled = blankDrawTool === 'eraser' || blankDrawTool === 'lasso';
   $('#blankDrawColors')?.classList.toggle('is-disabled', colorDisabled);
-  canvas?.classList.remove('blank-canvas--eraser', 'blank-canvas--lasso', 'blank-canvas--lasso-move');
+  $$('[data-blank-bg]').forEach((btn) => {
+    const on = btn.dataset.blankBg === getBlankPaperBg();
+    btn.classList.toggle('is-active', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  canvas?.classList.remove(
+    'blank-canvas--eraser',
+    'blank-canvas--lasso',
+    'blank-canvas--lasso-move',
+    'blank-canvas--text',
+    'blank-canvas--resize-nw',
+    'blank-canvas--resize-ne',
+    'blank-canvas--resize-sw',
+    'blank-canvas--resize-se'
+  );
   if (blankDrawTool === 'eraser') canvas?.classList.add('blank-canvas--eraser');
+  if (blankDrawTool === 'text') canvas?.classList.add('blank-canvas--text');
   if (blankDrawTool === 'lasso') {
     canvas?.classList.add(
       blankSelectedStrokeIndices.size && !blankLassoSelecting ? 'blank-canvas--lasso-move' : 'blank-canvas--lasso'
@@ -9606,11 +9920,37 @@ function initBlankCanvas() {
     blankDrawing = true;
     canvas.setPointerCapture?.(e.pointerId);
 
+    if (blankDrawTool === 'text') {
+      blankDrawing = false;
+      const hit = findBlankTextStrokeAtPoint(p);
+      if (hit != null) {
+        const stroke = normalizeBlankStroke(blankPageStrokes[hit]);
+        showBlankTextInputAt({ x: stroke.x, y: stroke.y }, hit, stroke.text);
+      } else {
+        showBlankTextInputAt(p, null, '');
+      }
+      return;
+    }
+
     if (blankDrawTool === 'lasso') {
       const bounds = getBlankSelectedStrokeBounds();
-      if (blankSelectedStrokeIndices.size && bounds && blankPointInBounds(p, bounds)) {
-        blankLassoDrag = { start: p, last: p, indices: [...blankSelectedStrokeIndices], undoPushed: false };
-        return;
+      if (blankSelectedStrokeIndices.size && bounds) {
+        const handle = getBlankResizeHandleAtPoint(p, bounds);
+        if (handle) {
+          blankLassoResize = {
+            handle: handle.id,
+            anchor: getBlankResizeAnchor(handle.id, bounds),
+            startBounds: { ...bounds },
+            snapshot: [...blankSelectedStrokeIndices].map((i) => cloneBlankDrawStroke(blankPageStrokes[i])),
+            indices: [...blankSelectedStrokeIndices],
+            undoPushed: false,
+          };
+          return;
+        }
+        if (blankPointInBounds(p, bounds)) {
+          blankLassoDrag = { start: p, last: p, indices: [...blankSelectedStrokeIndices], undoPushed: false };
+          return;
+        }
       }
       clearBlankLassoSelection();
       blankLassoPath = [p];
@@ -9636,6 +9976,23 @@ function initBlankCanvas() {
     if (!p) return;
 
     if (blankDrawTool === 'lasso') {
+      if (blankLassoResize) {
+        if (!blankLassoResize.undoPushed) {
+          pushBlankDrawUndo();
+          blankLassoResize.undoPushed = true;
+        }
+        applyBlankSelectionResize(
+          blankLassoResize.handle,
+          blankLassoResize.anchor,
+          blankLassoResize.startBounds,
+          p,
+          blankLassoResize.snapshot,
+          blankLassoResize.indices
+        );
+        blankDrawDirty = true;
+        redrawBlankCanvas();
+        return;
+      }
       if (blankLassoDrag) {
         const dx = p.x - blankLassoDrag.last.x;
         const dy = p.y - blankLassoDrag.last.y;
@@ -9646,10 +10003,7 @@ function initBlankCanvas() {
         blankLassoDrag.indices.forEach((index) => {
           const stroke = blankPageStrokes[index];
           if (!stroke) return;
-          stroke.points.forEach((pt) => {
-            pt.x += dx;
-            pt.y += dy;
-          });
+          blankPageStrokes[index] = moveBlankStroke(stroke, dx, dy);
         });
         blankLassoDrag.last = p;
         blankDrawDirty = true;
@@ -9685,6 +10039,14 @@ function initBlankCanvas() {
     canvas.releasePointerCapture?.(e.pointerId);
 
     if (blankDrawTool === 'lasso') {
+      if (blankLassoResize) {
+        blankDrawDirty = true;
+        saveBlankDraw();
+        blankLassoResize = null;
+        syncBlankDrawToolbar();
+        redrawBlankCanvas();
+        return;
+      }
       if (blankLassoDrag) {
         if (blankLassoDrag.start.x !== blankLassoDrag.last.x || blankLassoDrag.start.y !== blankLassoDrag.last.y) {
           blankDrawDirty = true;
@@ -9744,6 +10106,7 @@ function resizeBlankCanvas() {
 
   if (canvas.width === w && canvas.height === h) {
     redrawBlankCanvas();
+    syncBlankTextInputStyle();
     return;
   }
 
@@ -9762,6 +10125,7 @@ function resizeBlankCanvas() {
     overlay.height = h;
   }
   redrawBlankCanvas();
+  syncBlankTextInputStyle();
 }
 
 function ownerMatchesResize(oldW, oldH) {
@@ -9796,10 +10160,19 @@ function initBlankDrawToolbar() {
   $('#blankPaperSmaller')?.addEventListener('click', () => setBlankPaperStep(getBlankPaperStep() - 1));
   $('#blankPaperLarger')?.addEventListener('click', () => setBlankPaperStep(getBlankPaperStep() + 1));
 
+  renderBlankDrawBgColors();
+  $('#blankDrawBgColors')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-blank-bg]');
+    if (!btn) return;
+    setBlankPaperBg(btn.dataset.blankBg || 'light');
+  });
+
   $$('[data-draw-tool]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const tool = btn.dataset.drawTool;
-      blankDrawTool = tool === 'eraser' || tool === 'lasso' ? tool : 'pen';
+      blankDrawTool =
+        tool === 'eraser' || tool === 'lasso' || tool === 'text' ? tool : 'pen';
+      hideBlankTextInput();
       if (blankDrawTool !== 'lasso') clearBlankLassoSelection();
       redrawBlankCanvas();
       syncBlankDrawToolbar();
@@ -9812,7 +10185,7 @@ function initBlankDrawToolbar() {
     const btn = e.target.closest('[data-draw-color]');
     if (!btn) return;
     blankDrawColor = btn.dataset.drawColor || BLANK_DRAW_DEFAULT_COLOR;
-    blankDrawTool = 'pen';
+    if (blankDrawTool !== 'text' && !isBlankTextInputActive()) blankDrawTool = 'pen';
     syncBlankDrawToolbar();
   });
   $$('[data-draw-size]').forEach((btn) => {
@@ -9866,6 +10239,20 @@ function initBlankUI() {
       closeBlank();
     }
   });
+  $('#blankTextInput')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitBlankTextInput();
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      hideBlankTextInput();
+    }
+  });
+  $('#blankTextInput')?.addEventListener('blur', () => {
+    if (blankTextEditing) commitBlankTextInput();
+  });
+
   document.addEventListener('keydown', (e) => {
     if ($('[data-blank-pane="draw"]')?.hidden || $('#blankOverlay')?.hidden) return;
     if (blankDrawTool !== 'lasso' || !blankSelectedStrokeIndices.size) return;

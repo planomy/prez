@@ -5726,36 +5726,40 @@ body.blank-open .hint {
   pointer-events: none;
 }
 
-.blank-paper-surface--plain {
-  background: #f8f9fc;
+.blank-paper-bg-light.blank-paper-surface--plain {
+  background: var(--blank-paper-fill, #f8f9fc);
+}
+
+.blank-paper-bg-dark.blank-paper-surface--plain {
+  background: var(--blank-paper-fill, #141820);
 }
 
 .blank-paper-surface--lined {
   --paper-margin: 56px;
-  background-color: #fafaf8;
+  background-color: var(--blank-paper-fill, #fafaf8);
   background-image:
     linear-gradient(
       90deg,
       transparent calc(var(--paper-margin) - 1px),
-      rgba(220, 90, 80, 0.35) calc(var(--paper-margin) - 1px),
-      rgba(220, 90, 80, 0.35) var(--paper-margin),
+      var(--paper-margin-color, rgba(220, 90, 80, 0.35)) calc(var(--paper-margin) - 1px),
+      var(--paper-margin-color, rgba(220, 90, 80, 0.35)) var(--paper-margin),
       transparent var(--paper-margin)
     ),
     repeating-linear-gradient(
       to bottom,
       transparent 0,
       transparent calc(var(--paper-line, 36px) - 1px),
-      rgba(59, 130, 246, 0.38) calc(var(--paper-line, 36px) - 1px),
-      rgba(59, 130, 246, 0.38) var(--paper-line, 36px)
+      var(--paper-line-color, rgba(59, 130, 246, 0.38)) calc(var(--paper-line, 36px) - 1px),
+      var(--paper-line-color, rgba(59, 130, 246, 0.38)) var(--paper-line, 36px)
     );
   background-size: 100% 100%, 100% var(--paper-line, 36px);
 }
 
 .blank-paper-surface--quad {
-  background-color: #fafaf8;
+  background-color: var(--blank-paper-fill, #fafaf8);
   background-image:
-    linear-gradient(to right, rgba(96, 165, 250, 0.42) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(96, 165, 250, 0.42) 1px, transparent 1px);
+    linear-gradient(to right, var(--paper-grid-color, rgba(96, 165, 250, 0.42)) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--paper-grid-color, rgba(96, 165, 250, 0.42)) 1px, transparent 1px);
   background-size: var(--paper-cell, 56px) var(--paper-cell, 56px);
   background-position: -1px -1px;
 }
@@ -5783,6 +5787,82 @@ body.blank-open .hint {
 
 .blank-canvas.blank-canvas--lasso-move {
   cursor: move;
+}
+
+.blank-canvas.blank-canvas--text {
+  cursor: text;
+}
+
+.blank-canvas.blank-canvas--resize-nw,
+.blank-canvas.blank-canvas--resize-se {
+  cursor: nwse-resize;
+}
+
+.blank-canvas.blank-canvas--resize-ne,
+.blank-canvas.blank-canvas--resize-sw {
+  cursor: nesw-resize;
+}
+
+.blank-text-input {
+  position: absolute;
+  z-index: 4;
+  min-width: 120px;
+  max-width: min(480px, 80%);
+  padding: 6px 10px;
+  border: 2px solid rgba(37, 99, 235, 0.85);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.96);
+  color: #1a1d23;
+  font: 600 1.1rem/1.3 var(--font);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  outline: none;
+}
+
+.blank-text-input[hidden] {
+  display: none !important;
+}
+
+.blank-overlay.blank-overlay--draw-only .blank-tabs {
+  display: none;
+}
+
+.blank-overlay.blank-overlay--draw-only .blank-pane-type {
+  display: none !important;
+}
+
+.blank-overlay.blank-overlay--draw-only .blank-pane-draw {
+  display: flex !important;
+}
+
+.blank-draw-bg {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.blank-draw-bg-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.blank-draw-bg-btn.is-active {
+  border-color: rgba(255, 255, 255, 0.85);
+  transform: scale(1.05);
+}
+
+.blank-draw-bg-btn[data-blank-bg="light"] {
+  background: linear-gradient(135deg, #f8f9fc 50%, #e8ecf4 50%);
+}
+
+.blank-draw-bg-btn[data-blank-bg="dark"] {
+  background: linear-gradient(135deg, #141820 50%, #0a0d12 50%);
 }
 
 .blank-canvas-overlay {

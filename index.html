@@ -397,9 +397,10 @@
     <div class="blank-pane blank-pane-draw" data-blank-pane="draw" hidden>
       <p id="blankWhiteboardTitleDraw" class="blank-whiteboard-title blank-whiteboard-title--draw-pane" hidden></p>
       <div class="blank-canvas-stack">
-        <div id="blankCanvasPaper" class="blank-canvas-paper blank-paper-surface blank-paper-surface--plain" aria-hidden="true"></div>
+        <div id="blankCanvasPaper" class="blank-canvas-paper blank-paper-surface blank-paper-surface--plain blank-paper-bg-light" aria-hidden="true"></div>
         <canvas id="blankCanvas" class="blank-canvas"></canvas>
         <canvas id="blankCanvasOverlay" class="blank-canvas-overlay" aria-hidden="true"></canvas>
+        <input type="text" id="blankTextInput" class="blank-text-input" hidden aria-label="Whiteboard text" autocomplete="off" spellcheck="true" />
         <nav class="blank-draw-page-nav" aria-label="Drawing pages">
           <button type="button" id="blankDrawPagePrev" class="blank-draw-page-btn" aria-label="Previous page" disabled>‹</button>
           <span id="blankDrawPageLabel" class="blank-draw-page-label">1 / 1</span>
@@ -409,6 +410,7 @@
       <div class="blank-draw-tools blank-pane-footer">
         <div class="blank-pane-footer-row">
         <div class="blank-pane-footer-main">
+          <div class="blank-draw-bg" id="blankDrawBgColors" role="group" aria-label="Background colour"></div>
           <div class="blank-draw-paper" role="group" aria-label="Paper background">
             <button type="button" class="blank-draw-paper-btn is-active" data-blank-paper="plain" aria-pressed="true">Plain</button>
             <button type="button" class="blank-draw-paper-btn" data-blank-paper="lined" aria-pressed="false">Lined</button>
@@ -421,6 +423,7 @@
           </div>
           <div class="blank-draw-modes" role="group" aria-label="Tool">
             <button type="button" class="blank-draw-mode is-active" data-draw-tool="pen" aria-pressed="true">Pen</button>
+            <button type="button" class="blank-draw-mode" data-draw-tool="text" aria-pressed="false">Text</button>
             <button type="button" class="blank-draw-mode" data-draw-tool="eraser" aria-pressed="false">Eraser</button>
             <button type="button" class="blank-draw-mode" data-draw-tool="lasso" aria-pressed="false">Lasso</button>
           </div>
