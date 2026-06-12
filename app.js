@@ -3374,7 +3374,7 @@ function commitBlankTextInput() {
   const input = $('#blankTextInput');
   if (!input || !blankTextEditing) return;
   const text = input.value.replace(/\r\n/g, '\n');
-  const { index, x, y } = blankTextEditing;
+  const { index, x, y, scale } = blankTextEditing;
   hideBlankTextInput();
   if (!text.trim()) {
     if (index != null) {
@@ -3393,7 +3393,7 @@ function commitBlankTextInput() {
     y,
     color: blankDrawColor,
     size: blankDrawSize,
-    scale: blankTextEditing.scale || 1,
+    scale: scale || 1,
   };
   if (index != null) {
     pushBlankDrawUndo();
@@ -8999,6 +8999,10 @@ function isPresentTypingTarget(target) {
   return !!target?.closest?.('input, textarea, select, [contenteditable="true"]');
 }
 
+function isGlobalShortcutTypingTarget(target) {
+  return !!target?.closest?.('input:not([type="file"]), textarea, select, [contenteditable="true"]');
+}
+
 function presentAdvance() {
   syncPresentEditableFromStage();
   const blocks = getPresentBlocks();
@@ -10046,7 +10050,7 @@ function initBlankCanvas() {
 
     if (isBlankTextInputActive()) {
       commitBlankTextInput();
-      if (blankDrawTool !== 'text') return;
+      return;
     }
 
     blankDrawing = true;
@@ -10385,11 +10389,17 @@ function initBlankUI() {
   });
   $('#blankTextInput')?.addEventListener('input', () => syncBlankTextInputStyle());
   $('#blankTextInput')?.addEventListener('keydown', (e) => {
+    e.stopPropagation();
     if (e.key === 'Escape') {
       e.preventDefault();
       hideBlankTextInput();
       redrawBlankCanvas();
     }
+  });
+  $('.blank-canvas-stack')?.addEventListener('pointerdown', (e) => {
+    if (!isBlankTextInputActive()) return;
+    if (e.target.closest('#blankTextInput')) return;
+    commitBlankTextInput();
   });
   $('#blankTextInput')?.addEventListener('blur', (e) => {
     if (!blankTextEditing) return;
@@ -11983,6 +11993,7 @@ function init() {
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+      if (isBlankTextInputActive()) return;
       if ($('#galleryViewerOverlay') && !$('#galleryViewerOverlay').hidden) {
         closeGalleryViewer();
         return;
@@ -12005,15 +12016,15 @@ function init() {
       closeAllDropdowns();
       closeToolbarMenus();
     }
-    if (e.key === 'b' && !e.target.matches('input, [contenteditable], select')) {
+    if (e.key === 'b' && !isGlobalShortcutTypingTarget(e.target)) {
       e.preventDefault();
       openBlank();
     }
-    if (e.key === 't' && !e.target.matches('input, [contenteditable], select')) {
+    if (e.key === 't' && !isGlobalShortcutTypingTarget(e.target)) {
       e.preventDefault();
       toggleTimerPopover();
     }
-    if (e.key === 'o' && !e.target.matches('input, [contenteditable], select')) {
+    if (e.key === 'o' && !isGlobalShortcutTypingTarget(e.target)) {
       e.preventDefault();
       toggleOutline();
     }
@@ -12027,7 +12038,7 @@ function init() {
         presentRetreat();
       }
     }
-    if (e.key === 'p' && !e.target.matches('input, [contenteditable], select')) {
+    if (e.key === 'p' && !isGlobalShortcutTypingTarget(e.target)) {
       if (isGridWallBoard()) {
         openPresentGridWall();
         return;
@@ -12038,17 +12049,17 @@ function init() {
         openPresent(id);
       }
     }
-    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey && !e.target.matches('input, [contenteditable]')) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey && !isGlobalShortcutTypingTarget(e.target)) {
       e.preventDefault();
       undoLayout();
     }
-    if ((e.key === 'Delete' || e.key === 'Backspace') && !e.target.matches('input, [contenteditable]')) {
+    if ((e.key === 'Delete' || e.key === 'Backspace') && !isGlobalShortcutTypingTarget(e.target)) {
       const ids = getSelectedBlockIds();
       if (ids.length > 0) {
         ids.forEach((id) => deleteBlock(id));
       }
     }
-    if ((e.ctrlKey || e.metaKey) && e.key === 'a' && !e.target.matches('input, [contenteditable]')) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'a' && !isGlobalShortcutTypingTarget(e.target)) {
       e.preventDefault();
       selectAllBlocks();
     }
