@@ -447,6 +447,9 @@ let blankSelectedStrokeIndices = new Set();
 let blankLassoDrag = null;
 let blankLassoResize = null;
 let blankTextEditing = null;
+/** Ignore commit-on-blur / canvas-tap briefly after opening text (stylus ghost events). */
+let blankTextSuppressCommitUntil = 0;
+let blankTextBlurTimer = null;
 const blankStrokeImageCache = new Map();
 /** Whiteboard workspace mounted inside Present (type / table / draw). */
 let presentWhiteboardMounted = false;
@@ -3477,8 +3480,47 @@ function syncBlankTextInputStyle() {
   syncBlankTextInputSize(input);
 }
 
+function clearBlankTextBlurTimer() {
+  if (blankTextBlurTimer) {
+    clearTimeout(blankTextBlurTimer);
+    blankTextBlurTimer = null;
+  }
+}
+
+function shouldDeferBlankTextCommit() {
+  return Date.now() < blankTextSuppressCommitUntil;
+}
+
+function focusBlankTextInput(input = $('#blankTextInput')) {
+  if (!input || input.hidden) return;
+  input.focus({ preventScroll: true });
+  const len = input.value.length;
+  try {
+    input.setSelectionRange(len, len);
+  } catch {
+    /* some browsers reject before layout */
+  }
+  requestAnimationFrame(() => {
+    if (document.activeElement !== input) input.focus({ preventScroll: true });
+  });
+}
+
+function scheduleBlankTextBlurCommit() {
+  clearBlankTextBlurTimer();
+  blankTextBlurTimer = setTimeout(() => {
+    blankTextBlurTimer = null;
+    const input = $('#blankTextInput');
+    if (!blankTextEditing || !input) return;
+    if (document.activeElement === input) return;
+    if (shouldDeferBlankTextCommit()) return;
+    commitBlankTextInput();
+  }, 200);
+}
+
 function hideBlankTextInput() {
   const input = $('#blankTextInput');
+  clearBlankTextBlurTimer();
+  blankTextSuppressCommitUntil = 0;
   if (!input) return;
   input.hidden = true;
   input.setAttribute('hidden', '');
@@ -3512,18 +3554,18 @@ function showBlankTextInputAt(canvasPoint, strokeIndex = null, initialText = '')
   const editScale =
     strokeIndex != null ? normalizeBlankStroke(blankPageStrokes[strokeIndex]).scale || 1 : 1;
   blankTextEditing = { index: strokeIndex, x: canvasPoint.x, y: canvasPoint.y, scale: editScale };
+  blankTextSuppressCommitUntil = Date.now() + 400;
+  clearBlankTextBlurTimer();
   syncBlankTextInputStyle();
   syncBlankDrawToolbar();
-  requestAnimationFrame(() => {
-    input.focus();
-    const len = input.value.length;
-    input.setSelectionRange(len, len);
-  });
+  focusBlankTextInput(input);
 }
 
 function commitBlankTextInput() {
   const input = $('#blankTextInput');
   if (!input || !blankTextEditing) return;
+  if (shouldDeferBlankTextCommit()) return;
+  clearBlankTextBlurTimer();
   const text = input.value.replace(/\r\n/g, '\n');
   const { index, x, y, scale } = blankTextEditing;
   hideBlankTextInput();
@@ -10266,20 +10308,21 @@ function initBlankCanvas() {
 
   const down = (e) => {
     if ($('[data-blank-pane="draw"]')?.hidden) return;
-    e.preventDefault();
+    const textTool = blankDrawTool === 'text';
+    if (!textTool && !isBlankTextInputActive()) e.preventDefault();
     if (canvas.clientWidth >= 2 && canvas.clientHeight >= 2) resizeBlankCanvas();
     const p = blankCanvasPos(canvas, e);
     if (!p || !blankDrawCtx) return;
 
     if (isBlankTextInputActive()) {
-      commitBlankTextInput();
+      if (!shouldDeferBlankTextCommit()) commitBlankTextInput();
       return;
     }
 
     blankDrawing = true;
     canvas.setPointerCapture?.(e.pointerId);
 
-    if (blankDrawTool === 'text') {
+    if (textTool) {
       blankDrawing = false;
       const hit = findBlankTextStrokeAtPoint(p);
       if (hit != null) {
@@ -10618,6 +10661,11 @@ function initBlankUI() {
     }
   });
   $('#blankTextInput')?.addEventListener('input', () => syncBlankTextInputStyle());
+  $('#blankTextInput')?.addEventListener('focus', () => clearBlankTextBlurTimer());
+  $('#blankTextInput')?.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    blankTextSuppressCommitUntil = Date.now() + 400;
+  });
   $('#blankTextInput')?.addEventListener('keydown', (e) => {
     e.stopPropagation();
     if (e.key === 'Escape') {
@@ -10629,14 +10677,19 @@ function initBlankUI() {
   $('.blank-canvas-stack')?.addEventListener('pointerdown', (e) => {
     if (!isBlankTextInputActive()) return;
     if (e.target.closest('#blankTextInput, #blankCanvas')) return;
+    if (shouldDeferBlankTextCommit()) return;
     commitBlankTextInput();
   });
   $('#blankTextInput')?.addEventListener('blur', (e) => {
     if (!blankTextEditing) return;
     if (isBlankDrawToolbarTarget(e.relatedTarget)) return;
-    commitBlankTextInput();
+    scheduleBlankTextBlurCommit();
   });
   $('.blank-draw-tools')?.addEventListener('mousedown', (e) => {
+    if (!isBlankTextInputActive()) return;
+    if (isBlankDrawToolbarTarget(e.target)) e.preventDefault();
+  });
+  $('.blank-draw-tools')?.addEventListener('pointerdown', (e) => {
     if (!isBlankTextInputActive()) return;
     if (isBlankDrawToolbarTarget(e.target)) e.preventDefault();
   });
