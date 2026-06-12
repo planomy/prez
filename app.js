@@ -125,7 +125,8 @@ const BLANK_PAPER_STEP_DEFAULT = 2;
 const BLANK_PAPER_LINE_STEPS = [24, 30, 36, 44, 52, 60];
 const BLANK_PAPER_CELL_STEPS = [40, 48, 56, 64, 72, 80];
 const BLANK_PAPER_SCALE_LABELS = ['XS', 'S', 'Medium', 'L', 'XL', 'XXL'];
-const BLANK_DRAW_WIDTHS = { s: 3, m: 6, l: 12 };
+const BLANK_DRAW_WIDTHS = { s: 3, m: 6, l: 12, xl: 18 };
+const BLANK_DRAW_SIZE_KEYS = new Set(['s', 'm', 'l', 'xl']);
 const BLANK_DRAW_DEFAULT_COLOR = '#1a1d23';
 const BLANK_DRAW_COLORS = [
   { color: '#1a1d23', label: 'Black' },
@@ -135,13 +136,24 @@ const BLANK_DRAW_COLORS = [
   { color: '#1d4ed8', label: 'Blue' },
   { color: '#7c3aed', label: 'Violet' },
 ];
+const BLANK_DRAW_COLORS_DARK = [
+  { color: '#ffffff', label: 'White' },
+  { color: '#fde047', label: 'Yellow' },
+  { color: '#fb923c', label: 'Orange' },
+  { color: '#f87171', label: 'Coral' },
+  { color: '#4ade80', label: 'Mint' },
+  { color: '#60a5fa', label: 'Sky' },
+  { color: '#c084fc', label: 'Violet' },
+  { color: '#f472b6', label: 'Pink' },
+];
+const BLANK_TEXT_DEFAULT_SIZE = 'l';
 const BLANK_PAPER_BG_TYPES = new Set(['light', 'dark']);
 const BLANK_PAPER_BG_FILL = { light: '#f8f9fc', dark: '#141820' };
 const BLANK_PAPER_BG_LINE = {
   light: { line: 'rgba(59, 130, 246, 0.38)', grid: 'rgba(96, 165, 250, 0.42)', margin: 'rgba(220, 90, 80, 0.35)' },
   dark: { line: 'rgba(255, 255, 255, 0.16)', grid: 'rgba(255, 255, 255, 0.14)', margin: 'rgba(255, 120, 120, 0.28)' },
 };
-const BLANK_TEXT_SIZES = { s: 20, m: 32, l: 48 };
+const BLANK_TEXT_SIZES = { s: 36, m: 52, l: 72, xl: 96 };
 const BLANK_RESIZE_HANDLE_RADIUS = 12;
 const BLANK_DRAW_LEGACY_LIGHT = new Set([
   '#f4f6f8',
@@ -2570,14 +2582,14 @@ function normalizeBlankStroke(stroke) {
       x: stroke.x || 0,
       y: stroke.y || 0,
       color: stroke.color || BLANK_DRAW_DEFAULT_COLOR,
-      size: BLANK_DRAW_WIDTHS[stroke.size] ? stroke.size : 'm',
+      size: BLANK_DRAW_SIZE_KEYS.has(stroke.size) ? stroke.size : 'm',
       scale: typeof stroke.scale === 'number' && stroke.scale > 0 ? stroke.scale : 1,
     };
   }
   return {
     type: 'pen',
     color: stroke.color || BLANK_DRAW_DEFAULT_COLOR,
-    size: BLANK_DRAW_WIDTHS[stroke.size] ? stroke.size : 'm',
+    size: BLANK_DRAW_SIZE_KEYS.has(stroke.size) ? stroke.size : 'm',
     points: (stroke.points || []).map((p) => ({ x: p.x, y: p.y })),
   };
 }
@@ -2711,18 +2723,33 @@ function getBlankEraserHitRadius() {
 }
 
 function getBlankTextFontSize(stroke) {
-  const base = BLANK_TEXT_SIZES[stroke.size] || BLANK_TEXT_SIZES.m;
+  const base = BLANK_TEXT_SIZES[stroke.size] || BLANK_TEXT_SIZES.l;
   return base * (stroke.scale || 1);
 }
 
+function getBlankTextLineHeight(stroke) {
+  return getBlankTextFontSize(stroke) * 1.25;
+}
+
+function getBlankTextLines(stroke) {
+  const text = stroke?.text ?? '';
+  if (!text.includes('\n')) return [text];
+  return text.split('\n');
+}
+
 function drawBlankTextStroke(ctx, stroke, highlight = false) {
-  if (!ctx || !stroke?.text) return;
+  const s = normalizeBlankStroke(stroke);
+  if (!ctx || s.type !== 'text') return;
+  const lines = getBlankTextLines(s);
+  const lineHeight = getBlankTextLineHeight(s);
   ctx.save();
   ctx.globalCompositeOperation = 'source-over';
-  ctx.font = `600 ${getBlankTextFontSize(stroke)}px var(--font, system-ui, sans-serif)`;
+  ctx.font = `600 ${getBlankTextFontSize(s)}px var(--font, system-ui, sans-serif)`;
   ctx.textBaseline = 'top';
-  ctx.fillStyle = highlight ? 'rgba(37, 99, 235, 0.85)' : stroke.color || BLANK_DRAW_DEFAULT_COLOR;
-  ctx.fillText(stroke.text, stroke.x, stroke.y);
+  ctx.fillStyle = highlight ? 'rgba(37, 99, 235, 0.85)' : s.color || BLANK_DRAW_DEFAULT_COLOR;
+  lines.forEach((line, i) => {
+    ctx.fillText(line || ' ', s.x, s.y + i * lineHeight);
+  });
   ctx.restore();
 }
 
@@ -3001,12 +3028,16 @@ function blankPointInPolygon(point, polygon) {
 function measureBlankTextStroke(ctx, stroke) {
   const s = normalizeBlankStroke(stroke);
   if (!ctx || s.type !== 'text') return null;
+  const lines = getBlankTextLines(s);
+  const lineHeight = getBlankTextLineHeight(s);
   ctx.save();
   ctx.font = `600 ${getBlankTextFontSize(s)}px var(--font, system-ui, sans-serif)`;
-  const w = ctx.measureText(s.text || ' ').width;
+  let maxW = 0;
+  lines.forEach((line) => {
+    maxW = Math.max(maxW, ctx.measureText(line || ' ').width);
+  });
   ctx.restore();
-  const h = getBlankTextFontSize(s) * 1.2;
-  return { x: s.x, y: s.y, w: Math.max(w, 8), h };
+  return { x: s.x, y: s.y, w: Math.max(maxW, 8), h: Math.max(lines.length * lineHeight, lineHeight) };
 }
 
 function getStrokeBounds(stroke, ctx = blankDrawCtx) {
@@ -3014,7 +3045,13 @@ function getStrokeBounds(stroke, ctx = blankDrawCtx) {
   if (s.type === 'text') {
     const measured = ctx ? measureBlankTextStroke(ctx, s) : null;
     if (measured) return measured;
-    return { x: s.x, y: s.y, w: Math.max((s.text || '').length * 10, 24), h: getBlankTextFontSize(s) * 1.2 };
+    const lines = getBlankTextLines(s);
+    return {
+      x: s.x,
+      y: s.y,
+      w: Math.max((s.text || '').length * 10, 24),
+      h: Math.max(lines.length * getBlankTextLineHeight(s), getBlankTextLineHeight(s)),
+    };
   }
   if (!s.points?.length) return null;
   let minX = s.points[0].x;
@@ -3205,13 +3242,37 @@ function getBlankTextInputScale() {
   return rect.height > 0 ? rect.height / canvas.height : 1;
 }
 
+function getBlankDrawColorsPalette() {
+  return getBlankPaperBg() === 'dark' ? BLANK_DRAW_COLORS_DARK : BLANK_DRAW_COLORS;
+}
+
+function isBlankDrawToolbarTarget(el) {
+  return !!el?.closest?.(
+    '.blank-draw-tools, .blank-draw-colors, .blank-draw-sizes, .blank-draw-modes, .blank-draw-bg, .blank-draw-paper, .blank-draw-paper-scale'
+  );
+}
+
+function syncBlankTextInputSize(input = $('#blankTextInput')) {
+  if (!input || input.hidden) return;
+  const stack = $('.blank-canvas-stack');
+  const maxW = stack ? Math.max(stack.clientWidth * 0.92, 200) : 720;
+  input.style.width = '0px';
+  input.style.height = '0px';
+  const w = Math.max(48, Math.min(input.scrollWidth + 10, maxW));
+  const minH = getBlankTextLineHeight({ size: blankDrawSize, scale: 1 }) * getBlankTextInputScale();
+  const h = Math.max(minH, input.scrollHeight + 4);
+  input.style.width = `${w}px`;
+  input.style.height = `${h}px`;
+}
+
 function syncBlankTextInputStyle() {
   const input = $('#blankTextInput');
   if (!isBlankTextInputActive() || !input) return;
   const scale = getBlankTextInputScale();
-  const fontSize = (BLANK_TEXT_SIZES[blankDrawSize] || BLANK_TEXT_SIZES.m) * scale;
+  const fontSize = (BLANK_TEXT_SIZES[blankDrawSize] || BLANK_TEXT_SIZES.l) * scale;
   input.style.fontSize = `${fontSize}px`;
   input.style.color = blankDrawColor;
+  syncBlankTextInputSize(input);
 }
 
 function hideBlankTextInput() {
@@ -3230,8 +3291,10 @@ function showBlankTextInputAt(canvasPoint, strokeIndex = null, initialText = '')
   if (!canvas || !stack || !input) return;
   if (strokeIndex != null) {
     const stroke = normalizeBlankStroke(blankPageStrokes[strokeIndex]);
-    blankDrawSize = BLANK_DRAW_WIDTHS[stroke.size] ? stroke.size : 'm';
+    blankDrawSize = BLANK_DRAW_SIZE_KEYS.has(stroke.size) ? stroke.size : BLANK_TEXT_DEFAULT_SIZE;
     blankDrawColor = stroke.color || blankDrawColor;
+  } else {
+    blankDrawSize = BLANK_TEXT_DEFAULT_SIZE;
   }
   const rect = canvas.getBoundingClientRect();
   const stackRect = stack.getBoundingClientRect();
@@ -3247,16 +3310,20 @@ function showBlankTextInputAt(canvasPoint, strokeIndex = null, initialText = '')
   blankTextEditing = { index: strokeIndex, x: canvasPoint.x, y: canvasPoint.y };
   syncBlankTextInputStyle();
   syncBlankDrawToolbar();
-  requestAnimationFrame(() => input.focus());
+  requestAnimationFrame(() => {
+    input.focus();
+    const len = input.value.length;
+    input.setSelectionRange(len, len);
+  });
 }
 
 function commitBlankTextInput() {
   const input = $('#blankTextInput');
   if (!input || !blankTextEditing) return;
-  const text = input.value.trim();
+  const text = input.value.replace(/\r\n/g, '\n');
   const { index, x, y } = blankTextEditing;
   hideBlankTextInput();
-  if (!text) {
+  if (!text.trim()) {
     if (index != null) {
       pushBlankDrawUndo();
       blankPageStrokes.splice(index, 1);
@@ -3404,9 +3471,15 @@ function setBlankPaperBg(bg) {
   } else {
     state.blankPaperBg = tone;
   }
-  if (tone === 'dark' && blankDrawColor === BLANK_DRAW_DEFAULT_COLOR) blankDrawColor = '#f4f6f8';
-  if (tone === 'light' && blankDrawColor === '#f4f6f8') blankDrawColor = BLANK_DRAW_DEFAULT_COLOR;
+  if (tone === 'dark') {
+    const darkPalette = new Set(BLANK_DRAW_COLORS_DARK.map((c) => c.color));
+    if (!darkPalette.has(blankDrawColor)) blankDrawColor = '#ffffff';
+  } else {
+    const lightPalette = new Set(BLANK_DRAW_COLORS.map((c) => c.color));
+    if (!lightPalette.has(blankDrawColor) && blankDrawColor === '#ffffff') blankDrawColor = BLANK_DRAW_DEFAULT_COLOR;
+  }
   syncBlankPaperLayer();
+  syncBlankDrawColors();
   syncBlankDrawToolbar();
   persist();
 }
@@ -3459,9 +3532,9 @@ function syncBlankOverlayMode() {
 }
 
 function normalizeBlankDrawColor() {
-  const allowed = new Set(BLANK_DRAW_COLORS.map((c) => c.color));
-  if (!allowed.has(blankDrawColor) || BLANK_DRAW_LEGACY_LIGHT.has(blankDrawColor)) {
-    blankDrawColor = BLANK_DRAW_DEFAULT_COLOR;
+  const allowed = new Set(getBlankDrawColorsPalette().map((c) => c.color));
+  if (!allowed.has(blankDrawColor)) {
+    blankDrawColor = getBlankPaperBg() === 'dark' ? '#ffffff' : BLANK_DRAW_DEFAULT_COLOR;
   }
 }
 
@@ -9917,6 +9990,12 @@ function initBlankCanvas() {
     if (canvas.clientWidth >= 2 && canvas.clientHeight >= 2) resizeBlankCanvas();
     const p = blankCanvasPos(canvas, e);
     if (!p || !blankDrawCtx) return;
+
+    if (isBlankTextInputActive()) {
+      commitBlankTextInput();
+      if (blankDrawTool !== 'text') return;
+    }
+
     blankDrawing = true;
     canvas.setPointerCapture?.(e.pointerId);
 
@@ -10142,10 +10221,20 @@ function renderBlankDrawColors() {
   const wrap = $('#blankDrawColors');
   if (!wrap || wrap.dataset.built === '1') return;
   wrap.dataset.built = '1';
-  wrap.innerHTML = BLANK_DRAW_COLORS.map((entry) => {
-    const active = entry.color === blankDrawColor;
-    return `<button type="button" class="blank-draw-color${active ? ' is-active' : ''}" data-draw-color="${entry.color}" style="--swatch:${entry.color}" aria-label="${entry.label}" aria-pressed="${active ? 'true' : 'false'}"></button>`;
-  }).join('');
+  wrap.innerHTML = getBlankDrawColorsPalette()
+    .map((entry) => {
+      const active = entry.color === blankDrawColor;
+      return `<button type="button" class="blank-draw-color${active ? ' is-active' : ''}" data-draw-color="${entry.color}" style="--swatch:${entry.color}" aria-label="${entry.label}" aria-pressed="${active ? 'true' : 'false'}"></button>`;
+    })
+    .join('');
+}
+
+function syncBlankDrawColors() {
+  const wrap = $('#blankDrawColors');
+  if (!wrap) return;
+  delete wrap.dataset.built;
+  renderBlankDrawColors();
+  normalizeBlankDrawColor();
 }
 
 function initBlankDrawToolbar() {
@@ -10172,6 +10261,7 @@ function initBlankDrawToolbar() {
       const tool = btn.dataset.drawTool;
       blankDrawTool =
         tool === 'eraser' || tool === 'lasso' || tool === 'text' ? tool : 'pen';
+      if (blankDrawTool === 'text') blankDrawSize = BLANK_TEXT_DEFAULT_SIZE;
       hideBlankTextInput();
       if (blankDrawTool !== 'lasso') clearBlankLassoSelection();
       redrawBlankCanvas();
@@ -10239,18 +10329,22 @@ function initBlankUI() {
       closeBlank();
     }
   });
+  $('#blankTextInput')?.addEventListener('input', () => syncBlankTextInputSize());
   $('#blankTextInput')?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      commitBlankTextInput();
-    }
     if (e.key === 'Escape') {
       e.preventDefault();
       hideBlankTextInput();
+      redrawBlankCanvas();
     }
   });
-  $('#blankTextInput')?.addEventListener('blur', () => {
-    if (blankTextEditing) commitBlankTextInput();
+  $('#blankTextInput')?.addEventListener('blur', (e) => {
+    if (!blankTextEditing) return;
+    if (isBlankDrawToolbarTarget(e.relatedTarget)) return;
+    commitBlankTextInput();
+  });
+  $('.blank-draw-tools')?.addEventListener('mousedown', (e) => {
+    if (!isBlankTextInputActive()) return;
+    if (isBlankDrawToolbarTarget(e.target)) e.preventDefault();
   });
 
   document.addEventListener('keydown', (e) => {
