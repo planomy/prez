@@ -427,6 +427,10 @@
             <button type="button" class="blank-draw-mode" data-draw-tool="eraser" aria-pressed="false">Eraser</button>
             <button type="button" class="blank-draw-mode" data-draw-tool="lasso" aria-pressed="false">Lasso</button>
           </div>
+          <label class="btn btn-ghost btn-sm blank-add-image-btn" id="blankAddImageLabel">
+            Add image
+            <input type="file" id="blankAddImage" accept="image/*" hidden />
+          </label>
           <button type="button" id="blankLassoDelete" class="btn btn-ghost btn-sm blank-lasso-action" hidden>Delete selection</button>
           <div class="blank-draw-colors" id="blankDrawColors" role="group" aria-label="Colour"></div>
           <div class="blank-draw-sizes" role="group" aria-label="Thickness">

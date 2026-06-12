@@ -146,14 +146,20 @@ const BLANK_DRAW_COLORS_DARK = [
   { color: '#c084fc', label: 'Violet' },
   { color: '#f472b6', label: 'Pink' },
 ];
-const BLANK_TEXT_DEFAULT_SIZE = 'l';
 const BLANK_CANVAS_FONT_FAMILY = '"DM Sans", system-ui, sans-serif';
 let blankTextMeasureEl = null;
-const BLANK_PAPER_BG_TYPES = new Set(['light', 'dark']);
-const BLANK_PAPER_BG_FILL = { light: '#f8f9fc', dark: '#141820' };
+const BLANK_PAPER_BG_ORDER = ['light', 'parchment', 'dark'];
+const BLANK_PAPER_BG_TYPES = new Set(BLANK_PAPER_BG_ORDER);
+const BLANK_PAPER_BG_FILL = { light: '#f8f9fc', parchment: '#f3ead8', dark: '#141820' };
 const BLANK_PAPER_BG_LINE = {
   light: { line: 'rgba(59, 130, 246, 0.38)', grid: 'rgba(96, 165, 250, 0.42)', margin: 'rgba(220, 90, 80, 0.35)' },
+  parchment: { line: 'rgba(150, 120, 80, 0.32)', grid: 'rgba(160, 130, 90, 0.3)', margin: 'rgba(185, 95, 75, 0.3)' },
   dark: { line: 'rgba(255, 255, 255, 0.16)', grid: 'rgba(255, 255, 255, 0.14)', margin: 'rgba(255, 120, 120, 0.28)' },
+};
+const BLANK_PAPER_BG_LABELS = {
+  light: 'Light background',
+  parchment: 'Parchment background',
+  dark: 'Dark background',
 };
 const BLANK_TEXT_SIZES = { s: 36, m: 52, l: 72, xl: 96 };
 const BLANK_RESIZE_HANDLE_RADIUS = 12;
@@ -207,6 +213,7 @@ const GALLERY_DOC_ACCEPT =
 
 const MAX_DOCUMENT_BYTES = 12 * 1024 * 1024;
 const MAX_BACKGROUND_BYTES = 5 * 1024 * 1024;
+const MAX_BLANK_DRAW_IMAGE_BYTES = 5 * 1024 * 1024;
 
 const DOC_KINDS = {
   pdf: { label: 'PDF', color: '#c53030', bg: '#fed7d7' },
@@ -236,6 +243,8 @@ const DEFAULTS = {
   blankDrawPage: 0,
   blankPaper: 'plain',
   blankPaperBg: 'light',
+  blankDrawPenSize: 'm',
+  blankDrawTextSize: 'm',
   blankPaperStep: BLANK_PAPER_STEP_DEFAULT,
   timerSeconds: 300,
   mindMapCenterId: null,
@@ -438,6 +447,7 @@ let blankSelectedStrokeIndices = new Set();
 let blankLassoDrag = null;
 let blankLassoResize = null;
 let blankTextEditing = null;
+const blankStrokeImageCache = new Map();
 /** Whiteboard workspace mounted inside Present (type / table / draw). */
 let presentWhiteboardMounted = false;
 
@@ -698,6 +708,7 @@ function normalizeBoardState(data) {
     else if (b.type === 'whiteboard' && b.blankDraw === '') b.blankDraw = null;
     if (b.type === 'whiteboard') {
       normalizeBlankPaperFields(b);
+      normalizeBlankDrawPrefs(b);
       normalizeBlankDrawPages(b);
     }
   });
@@ -705,6 +716,7 @@ function normalizeBoardState(data) {
   merged.blankContent = merged.blankContent || '';
   merged.blankDraw = merged.blankDraw || null;
   normalizeBlankPaperFields(merged);
+  normalizeBlankDrawPrefs(merged);
   normalizeBlankDrawPages(merged);
   merged.timerSeconds = merged.timerSeconds || 300;
   merged.mindMapCenterId = merged.mindMapCenterId || null;
@@ -2575,6 +2587,13 @@ function isBlankTextStroke(stroke) {
   return stroke?.type === 'text' || (typeof stroke?.text === 'string' && typeof stroke?.x === 'number');
 }
 
+function isBlankImageStroke(stroke) {
+  return (
+    stroke?.type === 'image' ||
+    (typeof stroke?.src === 'string' && typeof stroke?.x === 'number' && typeof stroke?.w === 'number')
+  );
+}
+
 function normalizeBlankStroke(stroke) {
   if (!stroke) return { type: 'pen', color: BLANK_DRAW_DEFAULT_COLOR, size: 'm', points: [] };
   if (isBlankTextStroke(stroke)) {
@@ -2588,6 +2607,16 @@ function normalizeBlankStroke(stroke) {
       scale: typeof stroke.scale === 'number' && stroke.scale > 0 ? stroke.scale : 1,
     };
   }
+  if (isBlankImageStroke(stroke)) {
+    return {
+      type: 'image',
+      src: stroke.src,
+      x: stroke.x || 0,
+      y: stroke.y || 0,
+      w: Math.max(stroke.w || 120, 8),
+      h: Math.max(stroke.h || 120, 8),
+    };
+  }
   return {
     type: 'pen',
     color: stroke.color || BLANK_DRAW_DEFAULT_COLOR,
@@ -2598,7 +2627,7 @@ function normalizeBlankStroke(stroke) {
 
 function cloneBlankDrawStroke(stroke) {
   const s = normalizeBlankStroke(stroke);
-  if (s.type === 'text') return { ...s };
+  if (s.type === 'text' || s.type === 'image') return { ...s };
   return { ...s, points: s.points.map((p) => ({ x: p.x, y: p.y })) };
 }
 
@@ -2778,11 +2807,72 @@ function drawBlankTextStroke(ctx, stroke, highlight = false) {
   ctx.restore();
 }
 
+function ensureBlankStrokeImage(src, onDone) {
+  if (!src) {
+    onDone?.(null);
+    return;
+  }
+  const cached = blankStrokeImageCache.get(src);
+  if (cached?.complete && cached.naturalWidth) {
+    onDone?.(cached);
+    return;
+  }
+  const img = new Image();
+  img.onload = () => {
+    blankStrokeImageCache.set(src, img);
+    onDone?.(img);
+  };
+  img.onerror = () => onDone?.(null);
+  img.src = src;
+}
+
+function loadBlankStrokeImages(strokes, onDone) {
+  const sources = [
+    ...new Set(
+      (strokes || [])
+        .map((stroke) => normalizeBlankStroke(stroke))
+        .filter((stroke) => stroke.type === 'image' && stroke.src)
+        .map((stroke) => stroke.src)
+    ),
+  ];
+  if (!sources.length) {
+    onDone?.();
+    return;
+  }
+  let pending = sources.length;
+  sources.forEach((src) => {
+    ensureBlankStrokeImage(src, () => {
+      pending -= 1;
+      if (pending <= 0) onDone?.();
+    });
+  });
+}
+
+function drawBlankImageStroke(ctx, stroke, highlight = false) {
+  const s = normalizeBlankStroke(stroke);
+  if (!ctx || s.type !== 'image') return;
+  const img = blankStrokeImageCache.get(s.src);
+  if (!img?.complete || !img.naturalWidth) return;
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.drawImage(img, s.x, s.y, s.w, s.h);
+  if (highlight) {
+    ctx.strokeStyle = 'rgba(37, 99, 235, 0.55)';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(s.x, s.y, s.w, s.h);
+  }
+  ctx.restore();
+}
+
 function drawBlankStroke(ctx, stroke, highlight = false) {
   if (!ctx || !stroke) return;
   const normalized = normalizeBlankStroke(stroke);
   if (normalized.type === 'text') {
     drawBlankTextStroke(ctx, normalized, highlight);
+    return;
+  }
+  if (normalized.type === 'image') {
+    drawBlankImageStroke(ctx, normalized, highlight);
     return;
   }
   if (!normalized.points?.length) return;
@@ -2852,18 +2942,20 @@ function redrawBlankCanvas() {
   const canvas = $('#blankCanvas');
   if (!canvas || !blankDrawCtx) return;
   ensureBlankBackgroundImage(blankPageBackground, () => {
-    blankDrawCtx.globalCompositeOperation = 'source-over';
-    blankDrawCtx.clearRect(0, 0, canvas.width, canvas.height);
-    if (blankBackgroundImage) {
-      blankDrawCtx.drawImage(blankBackgroundImage, 0, 0, canvas.width, canvas.height);
-    }
-    blankPageStrokes.forEach((stroke, index) => {
-      drawBlankStroke(blankDrawCtx, stroke, blankSelectedStrokeIndices.has(index));
+    loadBlankStrokeImages(blankPageStrokes, () => {
+      blankDrawCtx.globalCompositeOperation = 'source-over';
+      blankDrawCtx.clearRect(0, 0, canvas.width, canvas.height);
+      if (blankBackgroundImage) {
+        blankDrawCtx.drawImage(blankBackgroundImage, 0, 0, canvas.width, canvas.height);
+      }
+      blankPageStrokes.forEach((stroke, index) => {
+        drawBlankStroke(blankDrawCtx, stroke, blankSelectedStrokeIndices.has(index));
+      });
+      if (blankCurrentStrokePoints?.length) {
+        drawBlankStrokePoints(blankDrawCtx, blankCurrentStrokePoints, blankDrawColor, blankDrawSize);
+      }
+      redrawBlankCanvasOverlay();
     });
-    if (blankCurrentStrokePoints?.length) {
-      drawBlankStrokePoints(blankDrawCtx, blankCurrentStrokePoints, blankDrawColor, blankDrawSize);
-    }
-    redrawBlankCanvasOverlay();
   });
 }
 
@@ -2924,6 +3016,13 @@ function scaleBlankStrokeFromAnchor(stroke, anchor, scaleX, scaleY) {
     s.scale = (s.scale || 1) * Math.min(scaleX, scaleY);
     return s;
   }
+  if (s.type === 'image') {
+    s.x = anchor.x + (s.x - anchor.x) * scaleX;
+    s.y = anchor.y + (s.y - anchor.y) * scaleY;
+    s.w = Math.max(8, s.w * scaleX);
+    s.h = Math.max(8, s.h * scaleY);
+    return s;
+  }
   s.points = s.points.map((p) => ({
     x: anchor.x + (p.x - anchor.x) * scaleX,
     y: anchor.y + (p.y - anchor.y) * scaleY,
@@ -2966,12 +3065,14 @@ function renderBlankDrawPreviewPage0(target, width, height, onDone) {
   const finish = (bgImg) => {
     ctx.clearRect(0, 0, w, h);
     if (bgImg) ctx.drawImage(bgImg, 0, 0, w, h);
-    (page.strokes || []).forEach((stroke) => drawBlankStroke(ctx, stroke));
-    try {
-      onDone?.(off.toDataURL('image/png'));
-    } catch (_) {
-      onDone?.(page.background || null);
-    }
+    loadBlankStrokeImages(page.strokes || [], () => {
+      (page.strokes || []).forEach((stroke) => drawBlankStroke(ctx, stroke));
+      try {
+        onDone?.(off.toDataURL('image/png'));
+      } catch (_) {
+        onDone?.(page.background || null);
+      }
+    });
   };
   if (page.background) {
     const img = new Image();
@@ -3067,6 +3168,9 @@ function measureBlankTextStroke(ctx, stroke) {
 
 function getStrokeBounds(stroke, ctx = blankDrawCtx) {
   const s = normalizeBlankStroke(stroke);
+  if (s.type === 'image') {
+    return { x: s.x, y: s.y, w: s.w, h: s.h };
+  }
   if (s.type === 'text') {
     const measured = ctx ? measureBlankTextStroke(ctx, s) : null;
     if (measured) return measured;
@@ -3171,7 +3275,7 @@ function blankPointInBounds(point, bounds) {
 
 function strokeHitsPoint(stroke, point, radius) {
   const s = normalizeBlankStroke(stroke);
-  if (s.type === 'text') {
+  if (s.type === 'text' || s.type === 'image') {
     const b = getStrokeBounds(s, blankDrawCtx);
     return b && blankPointInBounds(point, b);
   }
@@ -3197,7 +3301,7 @@ function removeBlankStrokeIndices(indices) {
 
 function strokeInLasso(stroke, polygon) {
   const s = normalizeBlankStroke(stroke);
-  if (s.type === 'text') {
+  if (s.type === 'text' || s.type === 'image') {
     const b = getStrokeBounds(s, blankDrawCtx);
     if (!b) return false;
     const center = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
@@ -3246,13 +3350,60 @@ function eraseBlankStrokesAtPoint(point) {
 
 function moveBlankStroke(stroke, dx, dy) {
   const s = normalizeBlankStroke(stroke);
-  if (s.type === 'text') {
+  if (s.type === 'text' || s.type === 'image') {
     s.x += dx;
     s.y += dy;
     return s;
   }
   s.points = s.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
   return s;
+}
+
+function addBlankDrawImage(file, { toastMessage } = {}) {
+  if (!file?.type?.startsWith('image/')) {
+    showToast('Choose an image file');
+    return;
+  }
+  if (file.size > MAX_BLANK_DRAW_IMAGE_BYTES) {
+    showToast('Image too large (max 5 MB)');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const src = reader.result;
+    const canvas = $('#blankCanvas');
+    const cw = canvas?.width || 800;
+    const ch = canvas?.height || 600;
+    ensureBlankStrokeImage(src, (img) => {
+      let w = img?.naturalWidth || 320;
+      let h = img?.naturalHeight || 240;
+      const maxW = cw * 0.55;
+      const maxH = ch * 0.55;
+      const ratio = Math.min(maxW / w, maxH / h, 1);
+      w *= ratio;
+      h *= ratio;
+      pushBlankDrawUndo();
+      blankPageStrokes.push({
+        type: 'image',
+        src,
+        x: Math.max(0, (cw - w) / 2),
+        y: Math.max(0, (ch - h) / 2),
+        w,
+        h,
+      });
+      blankSelectedStrokeIndices = new Set([blankPageStrokes.length - 1]);
+      blankDrawTool = 'lasso';
+      blankLassoPath = [];
+      blankLassoSelecting = false;
+      blankDrawDirty = true;
+      syncBlankDrawToolbar();
+      redrawBlankCanvas();
+      saveBlankDraw();
+      showToast(toastMessage || 'Image added — drag corners to resize');
+    });
+  };
+  reader.onerror = () => showToast('Could not read image');
+  reader.readAsDataURL(file);
 }
 
 function isBlankTextInputActive() {
@@ -3342,10 +3493,10 @@ function showBlankTextInputAt(canvasPoint, strokeIndex = null, initialText = '')
   if (!canvas || !stack || !input) return;
   if (strokeIndex != null) {
     const stroke = normalizeBlankStroke(blankPageStrokes[strokeIndex]);
-    blankDrawSize = BLANK_DRAW_SIZE_KEYS.has(stroke.size) ? stroke.size : BLANK_TEXT_DEFAULT_SIZE;
+    blankDrawSize = BLANK_DRAW_SIZE_KEYS.has(stroke.size) ? stroke.size : getBlankTextDrawSize();
     blankDrawColor = stroke.color || blankDrawColor;
   } else {
-    blankDrawSize = BLANK_TEXT_DEFAULT_SIZE;
+    blankDrawSize = getBlankTextDrawSize();
   }
   const rect = canvas.getBoundingClientRect();
   const stackRect = stack.getBoundingClientRect();
@@ -3402,6 +3553,7 @@ function commitBlankTextInput() {
     pushBlankDrawUndo();
     blankPageStrokes.push(stroke);
   }
+  setBlankTextDrawSize(blankDrawSize);
   blankDrawDirty = true;
   redrawBlankCanvas();
   saveBlankDraw();
@@ -3421,13 +3573,11 @@ function renderBlankDrawBgColors() {
   const wrap = $('#blankDrawBgColors');
   if (!wrap || wrap.dataset.built === '1') return;
   wrap.dataset.built = '1';
-  wrap.innerHTML = [...BLANK_PAPER_BG_TYPES]
-        .map((bg) => {
+  wrap.innerHTML = BLANK_PAPER_BG_ORDER.map((bg) => {
           const active = getBlankPaperBg() === bg;
-          const label = bg === 'dark' ? 'Dark background' : 'Light background';
+          const label = BLANK_PAPER_BG_LABELS[bg] || bg;
           return `<button type="button" class="blank-draw-bg-btn${active ? ' is-active' : ''}" data-blank-bg="${bg}" aria-label="${label}" aria-pressed="${active ? 'true' : 'false'}"></button>`;
-        })
-        .join('');
+        }).join('');
 }
 
 function resetBlankCanvasBuffer() {
@@ -3450,6 +3600,56 @@ function normalizeBlankPaperFields(target) {
   target.blankPaper = BLANK_PAPER_TYPES.has(type) ? type : 'plain';
   target.blankPaperStep = clampBlankPaperStep(target.blankPaperStep);
   target.blankPaperBg = BLANK_PAPER_BG_TYPES.has(target.blankPaperBg) ? target.blankPaperBg : 'light';
+}
+
+function normalizeBlankDrawPrefs(target) {
+  if (!target) return;
+  target.blankDrawPenSize = BLANK_DRAW_SIZE_KEYS.has(target.blankDrawPenSize)
+    ? target.blankDrawPenSize
+    : 'm';
+  target.blankDrawTextSize = BLANK_DRAW_SIZE_KEYS.has(target.blankDrawTextSize)
+    ? target.blankDrawTextSize
+    : 'm';
+}
+
+function getBlankPenDrawSize() {
+  const target = getBlankDrawStoreTarget();
+  normalizeBlankDrawPrefs(target || state);
+  const size = target?.blankDrawPenSize ?? state.blankDrawPenSize;
+  return BLANK_DRAW_SIZE_KEYS.has(size) ? size : 'm';
+}
+
+function getBlankTextDrawSize() {
+  const target = getBlankDrawStoreTarget();
+  normalizeBlankDrawPrefs(target || state);
+  const size = target?.blankDrawTextSize ?? state.blankDrawTextSize;
+  return BLANK_DRAW_SIZE_KEYS.has(size) ? size : 'm';
+}
+
+function setBlankPenDrawSize(size) {
+  const s = BLANK_DRAW_SIZE_KEYS.has(size) ? size : 'm';
+  const target = getBlankDrawStoreTarget();
+  if (!target) return;
+  target.blankDrawPenSize = s;
+  persist();
+}
+
+function setBlankTextDrawSize(size) {
+  const s = BLANK_DRAW_SIZE_KEYS.has(size) ? size : 'm';
+  const target = getBlankDrawStoreTarget();
+  if (!target) return;
+  target.blankDrawTextSize = s;
+  persist();
+}
+
+function applyBlankDrawSizeForTool(tool = blankDrawTool) {
+  blankDrawSize = tool === 'text' ? getBlankTextDrawSize() : getBlankPenDrawSize();
+}
+
+function rememberBlankDrawSizeForTool(tool = blankDrawTool, size = blankDrawSize) {
+  if (!BLANK_DRAW_SIZE_KEYS.has(size)) return;
+  if (tool === 'text' || isBlankTextInputActive()) setBlankTextDrawSize(size);
+  else setBlankPenDrawSize(size);
 }
 
 function getBlankPaperType() {
@@ -3616,6 +3816,7 @@ function initBlankDrawPageState() {
   blankCurrentStrokePoints = null;
   blankEraserRemoved = false;
   blankPenUndoPending = false;
+  applyBlankDrawSizeForTool();
   syncBlankDrawUndoBtn();
   syncBlankDrawPageNav();
   syncBlankLassoActions();
@@ -6925,6 +7126,7 @@ function applyBlockTypeDefaults(block, type) {
     block.blankDraw = block.blankDraw || null;
     if (!block.blankPaper) block.blankPaper = 'lined';
     normalizeBlankPaperFields(block);
+    normalizeBlankDrawPrefs(block);
     normalizeBlankDrawPages(block);
     if (block.w < 320) block.w = 360;
     if (block.h < 240) block.h = 280;
@@ -8602,6 +8804,27 @@ function blockAcceptsImagePaste(block) {
   return !!block && (block.type === 'image' || block.type === 'worldmap' || blockAcceptsInlineImage(block));
 }
 
+function isBlankDrawPaneActive() {
+  const overlay = $('#blankOverlay');
+  if (!overlay || overlay.hidden) return false;
+  const drawPane = $('[data-blank-pane="draw"]');
+  return !!(drawPane && !drawPane.hidden);
+}
+
+/** Paste screenshot / image from clipboard onto the whiteboard draw canvas. */
+function tryPasteBlankDrawImage(e) {
+  if (!isBlankDrawPaneActive()) return false;
+  const typePane = $('[data-blank-pane="type"]');
+  if (typePane && !typePane.hidden && e.target.closest('#blankEditor')) return false;
+  const file = getClipboardImageFile(e.clipboardData);
+  if (!file) return false;
+  e.preventDefault();
+  e.stopPropagation();
+  if (isBlankTextInputActive()) commitBlankTextInput();
+  addBlankDrawImage(file, { toastMessage: 'Image pasted — drag corners to resize' });
+  return true;
+}
+
 function shouldHandleDocumentImagePaste(e) {
   if (presentOverlay && !presentOverlay.hidden) return false;
   if (e.target.closest('dialog')) return false;
@@ -10218,6 +10441,7 @@ function initBlankCanvas() {
         size: blankDrawSize,
         points: blankCurrentStrokePoints.map((pt) => ({ x: pt.x, y: pt.y })),
       });
+      setBlankPenDrawSize(blankDrawSize);
       blankDrawDirty = true;
       saveBlankDraw();
     }
@@ -10318,12 +10542,17 @@ function initBlankDrawToolbar() {
       const tool = btn.dataset.drawTool;
       blankDrawTool =
         tool === 'eraser' || tool === 'lasso' || tool === 'text' ? tool : 'pen';
-      if (blankDrawTool === 'text') blankDrawSize = BLANK_TEXT_DEFAULT_SIZE;
+      applyBlankDrawSizeForTool();
       hideBlankTextInput();
       if (blankDrawTool !== 'lasso') clearBlankLassoSelection();
       redrawBlankCanvas();
       syncBlankDrawToolbar();
     });
+  });
+  $('#blankAddImage')?.addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    if (file) addBlankDrawImage(file);
+    e.target.value = '';
   });
   $('#blankLassoDelete')?.addEventListener('click', () => deleteBlankLassoSelection());
   $('#blankDrawPagePrev')?.addEventListener('click', () => navigateBlankDrawPage(-1));
@@ -10339,6 +10568,7 @@ function initBlankDrawToolbar() {
     btn.addEventListener('click', () => {
       blankDrawSize = btn.dataset.drawSize || 'm';
       if (blankTextEditing) blankTextEditing.scale = 1;
+      rememberBlankDrawSizeForTool();
       syncBlankDrawToolbar();
     });
   });
@@ -10398,7 +10628,7 @@ function initBlankUI() {
   });
   $('.blank-canvas-stack')?.addEventListener('pointerdown', (e) => {
     if (!isBlankTextInputActive()) return;
-    if (e.target.closest('#blankTextInput')) return;
+    if (e.target.closest('#blankTextInput, #blankCanvas')) return;
     commitBlankTextInput();
   });
   $('#blankTextInput')?.addEventListener('blur', (e) => {
@@ -11986,6 +12216,7 @@ function init() {
     (e) => {
       if (e.defaultPrevented) return;
       if (tryPasteBackgroundImage(e)) return;
+      if (tryPasteBlankDrawImage(e)) return;
       tryPasteImageToSelectedCard(e);
     },
     true

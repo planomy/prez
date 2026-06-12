@@ -5730,6 +5730,10 @@ body.blank-open .hint {
   background: var(--blank-paper-fill, #f8f9fc);
 }
 
+.blank-paper-bg-parchment.blank-paper-surface--plain {
+  background: var(--blank-paper-fill, #f3ead8);
+}
+
 .blank-paper-bg-dark.blank-paper-surface--plain {
   background: var(--blank-paper-fill, #141820);
 }
@@ -5883,6 +5887,10 @@ body.blank-open .hint {
   background: linear-gradient(135deg, #f8f9fc 50%, #e8ecf4 50%);
 }
 
+.blank-draw-bg-btn[data-blank-bg="parchment"] {
+  background: linear-gradient(135deg, #f3ead8 50%, #e5d9c0 50%);
+}
+
 .blank-draw-bg-btn[data-blank-bg="dark"] {
   background: linear-gradient(135deg, #141820 50%, #0a0d12 50%);
 }
@@ -5948,6 +5956,11 @@ body.blank-open .hint {
 
 .blank-lasso-action[hidden] {
   display: none !important;
+}
+
+.blank-add-image-btn {
+  cursor: pointer;
+  margin: 0;
 }
 
 .blank-draw-paper {
