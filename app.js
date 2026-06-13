@@ -474,6 +474,13 @@ let blankTextBlurTimer = null;
 const blankStrokeImageCache = new Map();
 /** Whiteboard workspace mounted inside Present (type / table / draw). */
 let presentWhiteboardMounted = false;
+let galleryViewerBlockId = null;
+let presentTimerSlideBlockId = null;
+let addDialogSideSearchQuery = '';
+
+function isPresentWhiteboardActive() {
+  return presentWhiteboardMounted && presentOverlay && !presentOverlay.hidden;
+}
 
 const BLANK_DRAW_UNDO_MAX = 24;
 let outlineDragId = null;
@@ -1171,7 +1178,7 @@ function populateTypeDropdown(el, block) {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       if (opt.panel) openBlockTypePickerPanel(el, block, opt.panel, dropdown);
-      else convertBlockToType(block, opt.type);
+      else void requestConvertBlockToType(block, opt.type);
     });
     grid.appendChild(btn);
   });
@@ -2251,7 +2258,7 @@ function hidePresentWhiteboard() {
   blankLaserTrail.length = 0;
   blankShapePreview = null;
   clearBlankLassoSelection();
-  closeBlankPdfSession();
+  void closeBlankPdfSession({ skipConfirm: true });
   clearBlankPdfSessionsMap();
   syncBlankDrawUndoBtn();
   presentWhiteboardMounted = false;
@@ -2872,9 +2879,25 @@ function clearBlankPdfSessionsMap() {
   blankPdfSession = null;
 }
 
-function closeBlankPdfSession() {
+function blankPdfSessionHasAnnotations() {
+  if (!blankPdfSession) return false;
+  saveBlankPdfSessionPageStrokes();
+  for (const strokes of blankPdfSession.strokesByPage.values()) {
+    if (strokes?.length) return true;
+  }
+  return false;
+}
+
+async function closeBlankPdfSession({ skipConfirm = false } = {}) {
   if (!blankPdfSession) return;
   saveBlankPdfSessionPageStrokes();
+  if (!skipConfirm && blankPdfSessionHasAnnotations()) {
+    const ok = await confirmDialog(
+      'Markup on this PDF deck is not saved to the board.',
+      { title: 'Close PDF?', confirmLabel: 'Close PDF', danger: true }
+    );
+    if (!ok) return;
+  }
   blankPdfSessionsByDrawPage.delete(blankDrawPageIndex);
   blankPdfSession = null;
   blankPageBackground = null;
@@ -2949,6 +2972,11 @@ function syncBlankPdfPageNav() {
   if (!blankPdfSession || !blankPageBackgroundRect) {
     nav.hidden = true;
     nav.setAttribute('hidden', '');
+    const note = $('#blankPdfSessionNote');
+    if (note) {
+      note.hidden = true;
+      note.setAttribute('hidden', '');
+    }
     return;
   }
   const bg = blankPageBackgroundRect;
@@ -2959,6 +2987,13 @@ function syncBlankPdfPageNav() {
   if (label) label.textContent = `${blankPdfSession.currentPage} / ${blankPdfSession.numPages}`;
   if (prevBtn) prevBtn.disabled = blankPdfSession.currentPage <= 1;
   if (nextBtn) nextBtn.disabled = blankPdfSession.currentPage >= blankPdfSession.numPages;
+  const note = $('#blankPdfSessionNote');
+  if (note) {
+    note.hidden = false;
+    note.removeAttribute('hidden');
+    note.style.left = `${bg.x + bg.w / 2}px`;
+    note.style.top = `${bg.y + bg.h + 42}px`;
+  }
 }
 
 function syncBlankDrawPageNav() {
@@ -5989,7 +6024,7 @@ function bindBlockEvents(el, block) {
     const action = btn.dataset.action;
     if (action === 'delete') {
       closeAllDropdowns();
-      deleteBlock(block.id);
+      void requestDeleteBlock(block.id);
     } else if (action === 'duplicate') {
       duplicateBlock(block);
       closeAllDropdowns();
@@ -8092,6 +8127,22 @@ function convertBlockToType(block, type) {
   focusBlockAfterTypeChange(block, type);
 }
 
+async function requestConvertBlockToType(block, type) {
+  if (block.type === type) {
+    convertBlockToType(block, type);
+    return;
+  }
+  if (blockHasMeaningfulContent(block)) {
+    const opt = BLOCK_TYPE_OPTIONS.find((o) => o.type === type);
+    const ok = await confirmDialog(
+      `Changing to ${opt?.label || type} will remove this card's current content.`,
+      { title: 'Change card type?', confirmLabel: 'Change', danger: true }
+    );
+    if (!ok) return;
+  }
+  convertBlockToType(block, type);
+}
+
 function getMindMapCenterBlock() {
   return state.mindMapCenterId ? getBlock(state.mindMapCenterId) : null;
 }
@@ -8859,14 +8910,37 @@ async function removeAssessmentStage() {
 async function openGalleryViewer(blockId) {
   const block = getBlock(blockId);
   if (!block || !galleryStationHasMedia(block)) return;
+  galleryViewerBlockId = blockId;
+  await renderGalleryViewer();
+}
+
+function getGalleryStationBlocks() {
+  return state.blocks
+    .filter((b) => b.galleryStation && galleryStationHasMedia(b))
+    .sort((a, b) => (a.galleryIndex ?? 0) - (b.galleryIndex ?? 0));
+}
+
+async function renderGalleryViewer() {
+  const stations = getGalleryStationBlocks();
+  const block = getBlock(galleryViewerBlockId);
+  if (!block || !stations.length) return;
 
   const overlay = $('#galleryViewerOverlay');
   const stage = $('#galleryViewerStage');
   const caption = $('#galleryViewerCaption');
+  const counter = $('#galleryViewerCounter');
+  const prevBtn = $('#galleryViewerPrev');
+  const nextBtn = $('#galleryViewerNext');
   if (!overlay || !stage) return;
+
+  const idx = stations.findIndex((b) => b.id === block.id);
+  const stationNum = idx >= 0 ? idx + 1 : 1;
 
   stage.innerHTML = '<p class="gallery-viewer-loading">Loading…</p>';
   caption.textContent = block.title || '';
+  if (counter) counter.textContent = stations.length > 1 ? `${stationNum} / ${stations.length}` : '';
+  if (prevBtn) prevBtn.disabled = idx <= 0;
+  if (nextBtn) nextBtn.disabled = idx < 0 || idx >= stations.length - 1;
 
   if (block.type === 'image' && block.imageData) {
     stage.innerHTML = `<img src="${block.imageData}" alt="${escapeAttr(block.title || 'Station')}" />`;
@@ -8897,9 +8971,20 @@ async function openGalleryViewer(blockId) {
   document.body.style.overflow = 'hidden';
 }
 
+function navigateGalleryViewer(delta) {
+  const stations = getGalleryStationBlocks();
+  const idx = stations.findIndex((b) => b.id === galleryViewerBlockId);
+  if (idx < 0) return;
+  const next = idx + delta;
+  if (next < 0 || next >= stations.length) return;
+  galleryViewerBlockId = stations[next].id;
+  void renderGalleryViewer();
+}
+
 function closeGalleryViewer() {
   const overlay = $('#galleryViewerOverlay');
   if (!overlay) return;
+  galleryViewerBlockId = null;
   overlay.hidden = true;
   overlay.setAttribute('hidden', '');
   document.body.style.overflow = '';
@@ -9218,6 +9303,9 @@ function closeAddDialogSidePanel() {
     side.setAttribute('aria-hidden', 'true');
   }
   $$('.add-dialog-side-pane').forEach((el) => el.classList.remove('is-active', 'is-entering'));
+  const search = $('#addDialogSideSearch');
+  if (search) search.value = '';
+  filterAddDialogSideSearch('');
   syncPostPickerUI();
 }
 
@@ -9450,6 +9538,7 @@ function buildHotRoutineList() {
       btn.type = 'button';
       btn.className = 'hot-routine-item';
       btn.dataset.routineId = routine.id;
+      btn.dataset.searchText = `${group.category} ${routine.name} ${routine.blurb}`.toLowerCase();
       const iconHtml = routine.icon
         ? `<img class="hot-routine-icon" src="${escapeAttr(routine.icon)}" alt="" width="52" height="52" />`
         : '';
@@ -9460,10 +9549,41 @@ function buildHotRoutineList() {
     });
   });
   syncHotPickerUI();
+  if (addDialogSideSearchQuery) filterAddDialogSideSearch(addDialogSideSearchQuery);
 }
 
 function initHotDialog() {
   buildHotRoutineList();
+  $('#addDialogSideSearch')?.addEventListener('input', (e) => {
+    filterAddDialogSideSearch(e.target.value);
+  });
+}
+
+function filterAddDialogSideSearch(query) {
+  addDialogSideSearchQuery = query;
+  ['#hotRoutineList', '#brainBreakRoutineList'].forEach((sel) => {
+    const list = $(sel);
+    if (!list) return;
+    const q = query.trim().toLowerCase();
+    list.querySelectorAll('.hot-routine-item').forEach((btn) => {
+      const text = btn.dataset.searchText || btn.textContent.toLowerCase();
+      const show = !q || text.includes(q);
+      btn.hidden = !show;
+      if (show) btn.removeAttribute('hidden');
+      else btn.setAttribute('hidden', '');
+    });
+    list.querySelectorAll('.hot-routine-category').forEach((cat) => {
+      let sib = cat.nextElementSibling;
+      let any = false;
+      while (sib && !sib.classList.contains('hot-routine-category')) {
+        if (sib.classList.contains('hot-routine-item') && !sib.hidden) any = true;
+        sib = sib.nextElementSibling;
+      }
+      cat.hidden = q && !any;
+      if (cat.hidden) cat.setAttribute('hidden', '');
+      else cat.removeAttribute('hidden');
+    });
+  });
 }
 
 // --- Brain breaks (card → Brain breaks) ---
@@ -9586,6 +9706,7 @@ function buildBrainBreakRoutineList() {
       btn.type = 'button';
       btn.className = 'hot-routine-item';
       btn.dataset.activityId = activity.id;
+      btn.dataset.searchText = `${group.category} ${group.hint} ${activity.title} ${activity.detail}`.toLowerCase();
       btn.innerHTML = `<span class="hot-routine-icon hot-routine-icon--emoji" aria-hidden="true">⚡</span>
         <span class="hot-routine-text"><span class="hot-routine-name">${escapeHtml(activity.title)}</span>
         <span class="hot-routine-meta">${escapeHtml(group.hint)}</span>
@@ -9594,6 +9715,7 @@ function buildBrainBreakRoutineList() {
     });
   });
   syncBrainBreakPickerUI();
+  if (addDialogSideSearchQuery) filterAddDialogSideSearch(addDialogSideSearchQuery);
 }
 
 function initBrainBreakDialog() {
@@ -9918,7 +10040,12 @@ function openPresent(blockId) {
   }
   const blocks = getPresentBlocks();
   const idx = blocks.findIndex((b) => b.id === blockId);
-  if (idx < 0) return;
+  if (idx < 0) {
+    if (getBlock(blockId)?.presentSkip) {
+      showToast('This card is skipped in Present — tap Show in the outline');
+    }
+    return;
+  }
   presentIndex = idx;
   presentRevealBlockId = null;
   presentQuizRevealBlockId = null;
@@ -9930,6 +10057,7 @@ function openPresent(blockId) {
   presentMapRevealBlockId = null;
   presentMapPinCount = 1;
   presentExpanded = false;
+  presentTimerSlideBlockId = null;
   presentOverlay.hidden = false;
   document.body.style.overflow = 'hidden';
   applyPresentBackground();
@@ -9947,6 +10075,7 @@ function closePresent() {
   presentExpanded = false;
   presentRevealBlockId = null;
   presentListRevealCount = 1;
+  presentTimerSlideBlockId = null;
   presentOverlay.classList.remove('present-expanded');
   presentStage.classList.remove('present-stage--expanded');
   presentOverlay.hidden = true;
@@ -9968,6 +10097,17 @@ async function renderPresent() {
   ensurePresentQuizState(block);
   ensurePresentBrainBreakState(block);
   ensurePresentMapPinState(block);
+
+  if (block.type === 'timer') {
+    if (presentTimerSlideBlockId !== block.id) {
+      presentTimerSlideBlockId = block.id;
+      setTimerDuration(block.timerSec || 300);
+      resetTimer();
+      startTimer();
+    }
+  } else {
+    presentTimerSlideBlockId = null;
+  }
 
   if (block.type === 'whiteboard') {
     const expandBtn = `<button type="button" class="present-expand present-expand--whiteboard" aria-label="Expand to full screen" title="Expand to full screen" aria-pressed="${presentExpanded ? 'true' : 'false'}">${presentExpanded ? PRESENT_RESTORE_ICON : PRESENT_EXPAND_ICON}</button>`;
@@ -10354,7 +10494,7 @@ function normalizePresentOrder() {
 
 function getPresentBlocks() {
   normalizePresentOrder();
-  return state.presentOrder.map((id) => getBlock(id)).filter(Boolean);
+  return state.presentOrder.map((id) => getBlock(id)).filter((b) => b && !b.presentSkip);
 }
 
 function addToPresentOrder(id) {
@@ -10367,7 +10507,38 @@ function removeFromPresentOrder(id) {
   state.presentOrder = state.presentOrder.filter((x) => x !== id);
 }
 
-function deleteBlock(id) {
+function boardHasContent() {
+  return state.blocks.length > 0 || !!state.gridWall;
+}
+
+function blockHasMeaningfulContent(block) {
+  if (!block) return false;
+  if (block.title?.trim()) return true;
+  if (block.imageData || block.docData || block.mapImageData) return true;
+  if (block.url?.trim()) return true;
+  if (block.blankDraw) return true;
+  if (block.blankContent?.replace(/<[^>]+>/g, '').trim()) return true;
+  const plain = (block.content || '').replace(/<[^>]+>/g, '').trim();
+  if (plain) return true;
+  if (block.type === 'poll') {
+    normalizePollData(block);
+    if (getPollTotalVotes(block) > 0) return true;
+    if (block.pollOptions?.some((o) => o?.trim())) return true;
+  }
+  if (block.type === 'quiz') {
+    const questions = getQuizQuestions(block);
+    if (questions.some((q) => q.question?.trim() || q.options?.some((o) => o?.trim()))) return true;
+  }
+  if (block.type === 'table' && block.tableHtml?.replace(/<[^>]+>/g, '').trim()) return true;
+  if (block.type === 'worldmap') {
+    normalizeWorldMapData(block);
+    if (block.mapPins?.some((p) => p.label?.trim())) return true;
+  }
+  if (block.hotRoutineId) return true;
+  return false;
+}
+
+function deleteBlock(id, opts = {}) {
   const removed = getBlock(id);
   if (!removed) return;
   if (blankBlockId === id) closeBlank();
@@ -10384,7 +10555,48 @@ function deleteBlock(id) {
   }
   persist();
   render();
-  showToast('Card deleted');
+  if (!opts.silent) showToast('Card deleted');
+}
+
+async function requestDeleteBlock(id) {
+  const block = getBlock(id);
+  if (!block) return;
+  if (blockHasMeaningfulContent(block)) {
+    const ok = await confirmDialog(`Delete “${getBlockOutlineLabel(block)}”?`, {
+      title: 'Delete card?',
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+  }
+  deleteBlock(id);
+}
+
+async function requestDeleteBlocks(ids) {
+  const unique = [...new Set(ids)].filter((id) => getBlock(id));
+  if (!unique.length) return;
+  const needsConfirm = unique.some((id) => blockHasMeaningfulContent(getBlock(id)));
+  if (needsConfirm) {
+    const label =
+      unique.length === 1 ? `“${getBlockOutlineLabel(getBlock(unique[0]))}”` : `${unique.length} cards`;
+    const ok = await confirmDialog(`Delete ${label}?`, {
+      title: 'Delete cards?',
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+  }
+  unique.forEach((id, i) => deleteBlock(id, { silent: i < unique.length - 1 }));
+  if (unique.length > 1) showToast(`${unique.length} cards deleted`);
+}
+
+function togglePresentSkip(id) {
+  const block = getBlock(id);
+  if (!block) return;
+  block.presentSkip = !block.presentSkip;
+  persist();
+  renderOutline();
+  showToast(block.presentSkip ? 'Skipped in Present' : 'Included in Present');
 }
 
 function getBlockOutlineLabel(block) {
@@ -11029,6 +11241,7 @@ function openBlank(blockId) {
 }
 
 function closeBlank() {
+  if (presentWhiteboardMounted) return;
   const overlay = $('#blankOverlay');
   if (!overlay || overlay.hidden) return;
   const editor = $('#blankEditor');
@@ -11055,7 +11268,7 @@ function closeBlank() {
   blankEraserRemoved = false;
   blankPenUndoPending = false;
   clearBlankLassoSelection();
-  closeBlankPdfSession();
+  void closeBlankPdfSession({ skipConfirm: true });
   clearBlankPdfSessionsMap();
   syncBlankWhiteboardTitle();
   const canvas = $('#blankCanvas');
@@ -11067,6 +11280,18 @@ function closeBlank() {
     if (el) updateBlockElement(el, block);
   }
   persist();
+}
+
+async function requestCloseBlank() {
+  if (presentWhiteboardMounted) return;
+  if (blankPdfSession && blankPdfSessionHasAnnotations()) {
+    const ok = await confirmDialog(
+      'PDF markup is not saved to the board.',
+      { title: 'Close whiteboard?', confirmLabel: 'Close', danger: true }
+    );
+    if (!ok) return;
+  }
+  closeBlank();
 }
 
 function setBlankTab(tab) {
@@ -11385,7 +11610,16 @@ async function openBlankPdfSlideshow(file) {
   const pdf = await loadBlankPdfDocument(file, { sessionOnly: true });
   if (!pdf) return;
 
-  if (blankPdfSession) closeBlankPdfSession();
+  if (blankPdfSession) {
+    if (blankPdfSessionHasAnnotations()) {
+      const ok = await confirmDialog(
+        'Replace the open PDF deck? Markup on it is not saved.',
+        { title: 'Open another PDF?', confirmLabel: 'Replace', danger: true }
+      );
+      if (!ok) return;
+    }
+    await closeBlankPdfSession({ skipConfirm: true });
+  }
 
   blankPdfSession = {
     pdf,
@@ -11466,15 +11700,17 @@ function handleBlankDrawKeydown(e) {
     redoBlankDrawStroke();
     return true;
   }
-  if (e.key === 'ArrowLeft' && !e.metaKey && !e.ctrlKey) {
-    e.preventDefault();
-    navigateBlankDrawPageOrPdf(-1);
-    return true;
-  }
-  if (e.key === 'ArrowRight' && !e.metaKey && !e.ctrlKey) {
-    e.preventDefault();
-    navigateBlankDrawPageOrPdf(1);
-    return true;
+  if (!isPresentWhiteboardActive()) {
+    if (e.key === 'ArrowLeft' && !e.metaKey && !e.ctrlKey) {
+      e.preventDefault();
+      navigateBlankDrawPageOrPdf(-1);
+      return true;
+    }
+    if (e.key === 'ArrowRight' && !e.metaKey && !e.ctrlKey) {
+      e.preventDefault();
+      navigateBlankDrawPageOrPdf(1);
+      return true;
+    }
   }
   return false;
 }
@@ -11937,7 +12173,7 @@ function initBlankDrawToolbar() {
     if (item.dataset.blankMore === 'clear-all') clearAllBlankDrawPages();
     else if (item.dataset.blankMore === 'image') $('#blankAddImage')?.click();
     else if (item.dataset.blankMore === 'pdf-open') $('#blankAddPdfOpen')?.click();
-    else if (item.dataset.blankMore === 'pdf-close') closeBlankPdfSession();
+    else if (item.dataset.blankMore === 'pdf-close') void closeBlankPdfSession();
     else $('#blankClearDraw')?.click();
   });
 
@@ -12035,8 +12271,24 @@ function initBlankDrawToolbar() {
 function initBlankUI() {
   initBlankDrawToolbar();
 
-  $('#blankClearDraw')?.addEventListener('click', () => {
+  $('#blankClearDraw')?.addEventListener('click', async () => {
     if (!blankDrawCtx) return;
+    const hasContent = blankPdfSession
+      ? blankPageStrokes.length > 0
+      : blankPageStrokes.length > 0 || blankPageBackground || blankBackgroundImage;
+    if (!hasContent) {
+      showToast('Already empty');
+      return;
+    }
+    if (
+      !(await confirmDialog('Everything on this page will be erased.', {
+        title: 'Clear page?',
+        confirmLabel: 'Clear',
+        danger: true,
+      }))
+    ) {
+      return;
+    }
     pushBlankDrawUndo();
     if (blankPdfSession) {
       blankPageStrokes = [];
@@ -12057,7 +12309,7 @@ function initBlankUI() {
   $('#blankClose')?.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    closeBlank();
+    void requestCloseBlank();
   });
   $$('.blank-tab').forEach((tab) => {
     tab.addEventListener('click', () => setBlankTab(tab.dataset.blankTab));
@@ -12173,26 +12425,36 @@ function renderOutline() {
     if (sel) cls += ' is-selected';
     if (multi && sel) cls += ' is-multi-selected';
     if (multi && id === selectedId) cls += ' is-primary-selected';
+    if (block.presentSkip) cls += ' outline-item--skipped';
     li.className = cls;
     li.dataset.blockId = id;
     li.draggable = true;
-    li.innerHTML = `<span class="outline-item-num">${i + 1}</span>
+    const skipLabel = block.presentSkip ? 'Include in Present' : 'Skip in Present';
+    li.innerHTML = `<span class="outline-item-num">${block.presentSkip ? '–' : i + 1}</span>
       <div class="outline-item-body">
         <p class="outline-item-title">${escapeHtml(getBlockOutlineLabel(block))}</p>
-        <p class="outline-item-meta">${escapeHtml(block.type)}</p>
+        <p class="outline-item-meta">${escapeHtml(block.type)}${block.presentSkip ? ' · skipped' : ''}</p>
       </div>
+      <button type="button" class="outline-item-skip" aria-label="${skipLabel}" title="${skipLabel}" aria-pressed="${block.presentSkip ? 'true' : 'false'}">${block.presentSkip ? 'Show' : 'Skip'}</button>
       <button type="button" class="outline-item-remove" aria-label="Delete card" title="Delete card">×</button>`;
+
+    const skipBtn = $('.outline-item-skip', li);
+    skipBtn?.addEventListener('mousedown', (e) => e.stopPropagation());
+    skipBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      togglePresentSkip(id);
+    });
 
     const removeBtn = $('.outline-item-remove', li);
     removeBtn?.addEventListener('mousedown', (e) => e.stopPropagation());
     removeBtn?.addEventListener('click', (e) => {
       e.stopPropagation();
-      deleteBlock(id);
+      void requestDeleteBlock(id);
     });
 
     li.addEventListener('mousedown', (e) => {
       if (e.button !== 0) return;
-      if (e.target.closest('.outline-item-remove')) return;
+      if (e.target.closest('.outline-item-remove, .outline-item-skip')) return;
       const additive = e.shiftKey || e.metaKey || e.ctrlKey;
       if (additive) {
         e.preventDefault();
@@ -12201,7 +12463,7 @@ function renderOutline() {
       }
     });
     li.addEventListener('click', (e) => {
-      if (e.target.closest('.outline-item-remove')) return;
+      if (e.target.closest('.outline-item-remove, .outline-item-skip')) return;
       const additive = e.shiftKey || e.metaKey || e.ctrlKey;
       if (additive) return;
       selectBlock(id);
@@ -12862,6 +13124,8 @@ function initBoardTemplateBar() {
 
 function initGalleryViewer() {
   $('#galleryViewerClose')?.addEventListener('click', closeGalleryViewer);
+  $('#galleryViewerPrev')?.addEventListener('click', () => navigateGalleryViewer(-1));
+  $('#galleryViewerNext')?.addEventListener('click', () => navigateGalleryViewer(1));
   $('#galleryViewerOverlay')?.addEventListener('click', (e) => {
     if (e.target.id === 'galleryViewerOverlay') closeGalleryViewer();
   });
@@ -12938,9 +13202,7 @@ function initHomeScreen() {
       closeHomeScreen();
       openTemplatesDialog();
     } else if (action === 'new') {
-      applyEmptyHomeBoard();
-      closeHomeScreen();
-      showToast('New board — click + to add your first card');
+      void requestNewHomeBoard();
     } else if (action === 'open') {
       openFilePicker();
     } else if (action === 'continue') {
@@ -13015,6 +13277,19 @@ function applyEmptyHomeBoard() {
   syncBoardTemplateBar();
   render();
   persist();
+}
+
+async function requestNewHomeBoard() {
+  if (boardHasContent()) {
+    const ok = await confirmDialog(
+      'Start a new blank board? The current board stays saved in this browser.',
+      { title: 'New board?', confirmLabel: 'New board', danger: true }
+    );
+    if (!ok) return;
+  }
+  applyEmptyHomeBoard();
+  closeHomeScreen();
+  showToast('New board — click + to add your first card');
 }
 
 async function exitGridWallBoard() {
@@ -13275,6 +13550,18 @@ function importBoard(file) {
     }
   };
   reader.readAsText(file);
+}
+
+async function requestImportBoard(file) {
+  if (!file) return;
+  if (boardHasContent()) {
+    const ok = await confirmDialog(
+      'Open this file? The current board will be replaced (auto-save in this browser is updated).',
+      { title: 'Open board?', confirmLabel: 'Open', danger: true }
+    );
+    if (!ok) return;
+  }
+  importBoard(file);
 }
 
 function sanitizeFilename(name) {
@@ -13650,7 +13937,7 @@ function bindToolbar() {
   $('#btnBg')?.addEventListener('click', openBgDialog);
   $('#fileInput')?.addEventListener('change', (e) => {
     const file = e.target.files?.[0];
-    if (file) importBoard(file);
+    if (file) void requestImportBoard(file);
     e.target.value = '';
   });
   $('#btnWhiteboard')?.addEventListener('click', () => {
@@ -13820,6 +14107,9 @@ function init() {
       if (presentOverlay && !presentOverlay.hidden && presentExpanded) {
         schedulePresentExpandedTextLayout();
       }
+      if (isBlankDrawShortcutActive() || presentWhiteboardMounted) {
+        requestAnimationFrame(resizeBlankCanvas);
+      }
     }, 220);
   });
 
@@ -13846,8 +14136,18 @@ function init() {
         closeGalleryViewer();
         return;
       }
+      if (isPresentWhiteboardActive()) {
+        if (presentExpanded) {
+          setPresentExpanded(false);
+        } else {
+          closePresent();
+        }
+        closeAllDropdowns();
+        closeToolbarMenus();
+        return;
+      }
       if (!$('#blankOverlay')?.hidden) {
-        closeBlank();
+        void requestCloseBlank();
         return;
       }
       if (!$('#outlinePanel')?.hidden) {
@@ -13875,6 +14175,18 @@ function init() {
     if (e.key === 'o' && !isGlobalShortcutTypingTarget(e.target)) {
       e.preventDefault();
       toggleOutline();
+    }
+    if ($('#galleryViewerOverlay') && !$('#galleryViewerOverlay').hidden && !isGlobalShortcutTypingTarget(e.target)) {
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        navigateGalleryViewer(1);
+        return;
+      }
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        navigateGalleryViewer(-1);
+        return;
+      }
     }
     if (presentOverlay && !presentOverlay.hidden && !isPresentTypingTarget(e.target)) {
       if (e.key === 'ArrowRight' || e.key === ' ') {
@@ -13904,7 +14216,7 @@ function init() {
     if ((e.key === 'Delete' || e.key === 'Backspace') && !isGlobalShortcutTypingTarget(e.target)) {
       const ids = getSelectedBlockIds();
       if (ids.length > 0) {
-        ids.forEach((id) => deleteBlock(id));
+        void requestDeleteBlocks(ids);
       }
     }
     if ((e.ctrlKey || e.metaKey) && e.key === 'a' && !isGlobalShortcutTypingTarget(e.target)) {

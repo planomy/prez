@@ -235,6 +235,10 @@
           <button type="button" class="btn-icon" id="addDialogSideClose" aria-label="Close routine list">×</button>
         </header>
         <p class="add-dialog-side-intro" id="addDialogSideIntro"></p>
+        <label class="add-dialog-side-search">
+          <span class="visually-hidden">Search routines</span>
+          <input type="search" id="addDialogSideSearch" placeholder="Search routines…" autocomplete="off" />
+        </label>
         <div class="add-dialog-side-scroll">
           <div id="hotRoutineList" class="hot-routine-list add-dialog-side-pane" data-side-pane="hot"></div>
           <div id="brainBreakRoutineList" class="hot-routine-list add-dialog-side-pane" data-side-pane="brainbreak" hidden></div>
@@ -351,8 +355,11 @@
 
   <div id="galleryViewerOverlay" class="gallery-viewer-overlay" hidden>
     <button type="button" id="galleryViewerClose" class="gallery-viewer-close" aria-label="Back to gallery">×</button>
+    <button type="button" id="galleryViewerPrev" class="gallery-viewer-nav gallery-viewer-nav--prev" aria-label="Previous station">‹</button>
+    <button type="button" id="galleryViewerNext" class="gallery-viewer-nav gallery-viewer-nav--next" aria-label="Next station">›</button>
     <div id="galleryViewerStage" class="gallery-viewer-stage"></div>
     <p id="galleryViewerCaption" class="gallery-viewer-caption"></p>
+    <p id="galleryViewerCounter" class="gallery-viewer-counter"></p>
   </div>
 
   <aside id="outlinePanel" class="outline-panel" hidden aria-label="Lesson outline">
@@ -360,7 +367,7 @@
       <h2>Lesson outline</h2>
       <button type="button" id="outlineClose" class="btn-icon" aria-label="Close outline">×</button>
     </header>
-    <p class="outline-hint">Drag to reorder · × to delete · Double-click to present</p>
+    <p class="outline-hint">Drag to reorder · Skip to hide in Present · × to delete · Double-click to present</p>
     <ol id="outlineList" class="outline-list"></ol>
   </aside>
 
@@ -410,6 +417,7 @@
           <span id="blankPdfPageLabel" class="blank-pdf-page-label">1 / 1</span>
           <button type="button" id="blankPdfPageNext" class="blank-pdf-page-btn" aria-label="Next PDF page">›</button>
         </nav>
+        <p id="blankPdfSessionNote" class="blank-pdf-session-note" hidden>Session only — markup not saved to board</p>
         <nav class="blank-draw-page-nav" aria-label="Whiteboard pages">
           <button type="button" id="blankDrawPagePrev" class="blank-draw-page-btn" aria-label="Previous page" disabled>‹</button>
           <span id="blankDrawPageLabel" class="blank-draw-page-label">1 / 1</span>
@@ -581,7 +589,7 @@
         'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     }
   </script>
-  <script src="app.js?v=20260613b"></script>
+  <script src="app.js?v=20260613d"></script>
   <script src="https://cdn.jsdelivr.net/npm/mammoth@1.9.0/mammoth.browser.min.js" async></script>
 </body>
 </html>
