@@ -2820,6 +2820,82 @@ body.table-col-resize-active .blank-table-wrap {
   backdrop-filter: blur(4px);
 }
 
+.dialog--confirm {
+  margin: auto;
+}
+
+.dialog-panel-confirm {
+  width: min(400px, 92vw);
+  padding: 0;
+  text-align: center;
+  overflow: hidden;
+}
+
+.confirm-dialog-header {
+  padding: 24px 24px 0;
+}
+
+.confirm-dialog-title {
+  margin: 0;
+  font-family: var(--font-display, var(--font));
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.confirm-dialog-message {
+  margin: 12px 24px 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--text-muted, rgba(15, 20, 25, 0.72));
+}
+
+.confirm-dialog-footer {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  padding: 22px 24px 24px;
+  margin-top: 4px;
+}
+
+.confirm-dialog-footer .btn {
+  min-width: 108px;
+}
+
+.pdf-page-dialog-field {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 24px 8px;
+}
+
+.pdf-page-dialog-label {
+  font-size: 0.95rem;
+  color: var(--text-muted, rgba(15, 20, 25, 0.72));
+}
+
+.pdf-page-dialog-input {
+  width: 4.5rem;
+  padding: 6px 8px;
+  border: 1px solid var(--border, rgba(15, 20, 25, 0.15));
+  border-radius: 8px;
+  font: inherit;
+  text-align: center;
+}
+
+.btn-danger {
+  background: #dc2626;
+  color: #fff;
+  border: none;
+}
+
+.btn-danger:hover {
+  background: #b91c1c;
+}
+
 .dialog-panel {
   background: var(--bg-card);
   border-radius: 16px;
@@ -5484,7 +5560,8 @@ body.blank-open .hint {
   padding-right: 4px;
 }
 
-.blank-type-tools .blank-table-insert {
+.blank-type-tools .blank-table-insert,
+.blank-draw-table-insert {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -5492,6 +5569,14 @@ body.blank-open .hint {
   padding: 3px 8px 3px 4px;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.06);
+}
+
+.blank-draw-table-insert {
+  flex-shrink: 0;
+}
+
+.blank-draw-table-insert .blank-type-tools-label {
+  font-size: 0.72rem;
 }
 
 .blank-whiteboard-title[hidden] {
@@ -5785,6 +5870,10 @@ body.blank-open .hint {
   cursor: cell;
 }
 
+.blank-canvas.blank-canvas--select {
+  cursor: default;
+}
+
 .blank-canvas.blank-canvas--lasso {
   cursor: crosshair;
 }
@@ -5833,6 +5922,21 @@ body.blank-open .hint {
   border-color: rgba(255, 255, 255, 0.4);
 }
 
+.blank-text-input--table-cell {
+  border-style: solid;
+  border-color: rgba(37, 99, 235, 0.65);
+  border-radius: 2px;
+  padding: 2px 4px;
+  overflow: hidden;
+  resize: none;
+}
+
+.blank-toolbar-popover-divider {
+  height: 1px;
+  margin: 4px 0;
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .blank-text-measure {
   position: fixed;
   left: -9999px;
@@ -5870,17 +5974,19 @@ body.blank-open .hint {
 }
 
 .blank-draw-bg-btn {
-  width: 28px;
-  height: 28px;
+  width: 22px;
+  height: 22px;
   padding: 0;
-  border: 2px solid transparent;
+  border: 1px solid rgba(255, 255, 255, 0.48);
   border-radius: 6px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.14);
   cursor: pointer;
   transition: border-color 0.15s, transform 0.15s;
 }
 
 .blank-draw-bg-btn.is-active {
-  border-color: rgba(255, 255, 255, 0.85);
+  border-color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 2px rgba(244, 246, 248, 0.4), inset 0 0 0 1px rgba(0, 0, 0, 0.1);
   transform: scale(1.05);
 }
 
@@ -5909,6 +6015,57 @@ body.blank-open .hint {
   background: transparent;
 }
 
+.blank-pdf-page-nav {
+  position: absolute;
+  z-index: 4;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(15, 20, 25, 0.82);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.28);
+  pointer-events: auto;
+}
+
+.blank-pdf-page-nav[hidden] {
+  display: none;
+}
+
+.blank-pdf-page-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: #f4f6f8;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.blank-pdf-page-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.blank-pdf-page-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.blank-pdf-page-label {
+  min-width: 4rem;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #f4f6f8;
+  user-select: none;
+}
+
 .blank-draw-page-nav {
   position: absolute;
   right: 14px;
@@ -5923,6 +6080,13 @@ body.blank-open .hint {
   backdrop-filter: blur(8px);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
 }
+
+.blank-draw-page-nav.is-pdf-session .blank-draw-page-label {
+  min-width: 4.5rem;
+  text-align: center;
+}
+
+/* legacy — safe to remove later */
 
 .blank-draw-page-btn {
   width: 36px;
@@ -6027,14 +6191,6 @@ body.blank-open .hint {
   cursor: not-allowed;
 }
 
-.blank-draw-paper-scale-label {
-  min-width: 4.5rem;
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: rgba(244, 246, 248, 0.75);
-  text-align: center;
-}
-
 .blank-draw-modes {
   display: flex;
   gap: 4px;
@@ -6044,26 +6200,36 @@ body.blank-open .hint {
 }
 
 .blank-draw-mode {
-  padding: 6px 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   background: transparent;
-  color: rgba(244, 246, 248, 0.65);
-  font: inherit;
-  font-size: 0.82rem;
-  font-weight: 600;
+  color: rgba(244, 246, 248, 0.72);
   cursor: pointer;
 }
 
 .blank-draw-mode.is-active {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.16);
+  color: #f4f6f8;
+}
+
+.blank-draw-mode:hover:not(.is-active) {
+  background: rgba(255, 255, 255, 0.08);
   color: #f4f6f8;
 }
 
 .blank-draw-colors {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  padding: 3px 5px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .blank-draw-colors.is-disabled {
@@ -6072,18 +6238,21 @@ body.blank-open .hint {
 }
 
 .blank-draw-color {
-  width: 28px;
-  height: 28px;
+  width: 20px;
+  height: 20px;
   padding: 0;
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.48);
+  border-radius: 6px;
   background: var(--swatch);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.14);
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .blank-draw-color.is-active {
   border-color: #f4f6f8;
-  box-shadow: 0 0 0 2px rgba(244, 246, 248, 0.35);
+  box-shadow: 0 0 0 2px rgba(244, 246, 248, 0.45), inset 0 0 0 1px rgba(0, 0, 0, 0.1);
+  transform: scale(1.08);
 }
 
 .blank-draw-sizes {
@@ -6095,8 +6264,8 @@ body.blank-open .hint {
 }
 
 .blank-draw-size {
-  min-width: 32px;
-  padding: 6px 8px;
+  min-width: 28px;
+  padding: 5px 6px;
   border: none;
   border-radius: 6px;
   background: transparent;
@@ -6113,8 +6282,8 @@ body.blank-open .hint {
 }
 
 .blank-draw-undo {
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   flex-shrink: 0;
   color: rgba(244, 246, 248, 0.75);
   border-radius: 8px;
@@ -6125,9 +6294,179 @@ body.blank-open .hint {
   color: #f4f6f8;
 }
 
-.blank-draw-undo:disabled {
+.blank-draw-undo:disabled,
+.blank-draw-redo:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+
+.blank-draw-redo {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  color: rgba(244, 246, 248, 0.75);
+  border-radius: 8px;
+}
+
+.blank-draw-redo:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f4f6f8;
+}
+
+.blank-draw-shapes {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.blank-draw-shapes.is-disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.blank-draw-shape {
+  min-width: 30px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(244, 246, 248, 0.65);
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.blank-draw-shape.is-active {
+  background: rgba(255, 255, 255, 0.14);
+  color: #f4f6f8;
+}
+
+.blank-toolbar-divider {
+  width: 1px;
+  height: 26px;
+  background: rgba(255, 255, 255, 0.12);
+  flex-shrink: 0;
+}
+
+.blank-toolbar-menu-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.blank-toolbar-menu-btn {
+  padding: 6px 10px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(244, 246, 248, 0.82);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.blank-toolbar-menu-btn:hover,
+.blank-toolbar-menu-btn[aria-expanded='true'] {
+  background: rgba(255, 255, 255, 0.12);
+  color: #f4f6f8;
+}
+
+.blank-toolbar-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  min-width: 148px;
+  padding: 6px;
+  border-radius: 10px;
+  background: rgba(18, 22, 28, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+
+.blank-toolbar-popover[hidden] {
+  display: none !important;
+}
+
+.blank-toolbar-popover-item {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: rgba(244, 246, 248, 0.9);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.blank-toolbar-popover-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.blank-toolbar-popover--table {
+  min-width: 200px;
+  padding: 10px;
+}
+
+.blank-table-insert-fields {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.blank-table-insert-fields .blank-table-insert-field {
+  flex: 1;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.blank-table-insert-fields .blank-table-insert-field input {
+  width: 100%;
+}
+
+.blank-table-insert-submit {
+  width: 100%;
+}
+
+.blank-draw-paper-scale {
+  gap: 2px;
+}
+
+.blank-canvas.blank-canvas--laser {
+  cursor: crosshair;
+}
+
+.blank-canvas.blank-canvas--shape {
+  cursor: crosshair;
+}
+
+@media (max-width: 900px) {
+  .blank-pane-footer-main {
+    gap: 6px;
+  }
+
+  .blank-toolbar-divider {
+    display: none;
+  }
+
+  .blank-draw-paper-btn {
+    padding: 5px 7px;
+    font-size: 0.72rem;
+  }
 }
 
 /* Outline panel */
